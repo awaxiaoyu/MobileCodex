@@ -1,0 +1,12 @@
+{
+  "desktopProduct": "26.1007.21434",
+  "platform": "win32",
+  "arch": "x64",
+  "node": "24.19.0",
+  "electron": "155.0.8059.40",
+  "chrome": "155.0.8059.40",
+  "v8": "15.5.35.20",
+  "napiEnvIsolateOffset": 8,
+  "evidence": "docs/p0-verification.md",
+  "strategy": "Frida N-API on original JavaScript owner thread; refuse unknown runtime before IPC hooks"
+}
