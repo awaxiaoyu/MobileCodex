@@ -568,6 +568,11 @@ class _TaskPageState extends State<TaskPage> {
         ],
       ),
     );
+    // Navigator.pop completes the dialog future before its route has fully
+    // left the overlay. Defer the ChangeNotifier updates caused by pairing
+    // until that route has been torn down; otherwise a parent rebuild can
+    // race Flutter's InheritedElement dependency cleanup.
+    await WidgetsBinding.instance.endOfFrame;
     edit.dispose();
     if (value != null) {
       await client.pair(value, Platform.isIOS ? 'iPhone' : 'Android');
