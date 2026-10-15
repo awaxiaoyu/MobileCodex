@@ -1,0 +1,18 @@
+{
+  "timestamp": "2026-10-14T19:25:04.865Z",
+  "threadId": "01a13bd4-f7ad-7fa2-b199-090bb94f5167",
+  "plan": true,
+  "userInput": true,
+  "requestId": "srvreq_132f164e-6309-4cdd-af2d-5fa205d87d91",
+  "reply": true,
+  "duplicateRejected": true,
+  "resolved": true,
+  "snapshot": {
+    "succeeded": true,
+    "approvals": 0
+  },
+  "cleanup": {
+    "stopped": true,
+    "hooksRestored": true
+  }
+}
