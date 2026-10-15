@@ -157,7 +157,9 @@ void main() {
     expect(find.text('Recent chat'), findsOneWidget);
     expect(find.text('Alpha chat'), findsNothing);
 
-    await tester.tap(find.text('Project Alpha'));
+    await tester.tap(
+      find.byKey(const PageStorageKey('project-alpha')),
+    );
     await tester.pumpAndSettle();
     expect(find.text('Alpha chat'), findsOneWidget);
     expect(find.text('Beta chat'), findsNothing);
