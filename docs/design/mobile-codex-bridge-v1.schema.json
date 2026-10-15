@@ -1,0 +1,369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:mobile-codex-bridge:protocol:v1",
+  "title": "Mobile Codex Bridge v1 Envelope",
+  "description": "Mobile Codex Bridge v1 envelope。当前实现状态见 README.md 与 docs/p0-verification.md；原生参数/回复按部署版本 schema 与业务白名单校验。",
+  "type": "object",
+  "required": [
+    "v",
+    "kind",
+    "method",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "v": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "kind": {
+      "enum": [
+        "request",
+        "response",
+        "event",
+        "server.request",
+        "server.response",
+        "snapshot",
+        "error"
+      ]
+    },
+    "method": {
+      "type": "string",
+      "minLength": 1
+    },
+    "backendId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "backendGeneration": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "threadId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "turnId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "streamId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ack": {
+      "$ref": "#/$defs/cursor"
+    },
+    "payload": {
+      "description": "按 method/kind 选择 schema。原生 result 可包含 null、数组或扩展字段，不由 envelope 截断。"
+    }
+  },
+  "dependentRequired": {
+    "backendId": [
+      "backendGeneration"
+    ],
+    "backendGeneration": [
+      "backendId"
+    ],
+    "streamId": [
+      "seq"
+    ],
+    "seq": [
+      "streamId"
+    ],
+    "threadId": [
+      "backendId",
+      "backendGeneration"
+    ],
+    "turnId": [
+      "backendId",
+      "backendGeneration"
+    ]
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "request",
+              "response",
+              "server.request",
+              "server.response",
+              "snapshot"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "server.request",
+              "server.response"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "backendId",
+          "backendGeneration"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "event",
+              "snapshot"
+            ]
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "required": [
+          "backendId",
+          "backendGeneration",
+          "streamId",
+          "seq"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "error"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/error"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "request",
+              "response"
+            ]
+          },
+          "method": {
+            "const": "codex.request"
+          }
+        },
+        "required": [
+          "kind",
+          "method"
+        ]
+      },
+      "then": {
+        "required": [
+          "backendId",
+          "backendGeneration"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "request"
+          },
+          "method": {
+            "const": "codex.request"
+          }
+        },
+        "required": [
+          "kind",
+          "method"
+        ]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/codexRequest"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "request"
+          },
+          "method": {
+            "const": "bridge.events.resume"
+          }
+        },
+        "required": [
+          "kind",
+          "method"
+        ]
+      },
+      "then": {
+        "required": [
+          "backendId",
+          "backendGeneration"
+        ],
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/resumeRequest"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "request"
+          },
+          "method": {
+            "const": "bridge.request.get"
+          }
+        },
+        "required": [
+          "kind",
+          "method"
+        ]
+      },
+      "then": {
+        "required": [
+          "backendId",
+          "backendGeneration"
+        ],
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/requestQuery"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "cursor": {
+      "type": "object",
+      "required": [
+        "streamId",
+        "seq"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "streamId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "codexRequest": {
+      "type": "object",
+      "required": [
+        "method"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "params": {
+          "description": "保留原生 params，包括省略或 null；按当前 Codex ClientRequest schema 校验。"
+        }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "data": {}
+      }
+    },
+    "resumeRequest": {
+      "type": "object",
+      "required": [
+        "streamId",
+        "afterSeq"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "streamId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "afterSeq": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "requestQuery": {
+      "type": "object",
+      "required": [
+        "requestId"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}
