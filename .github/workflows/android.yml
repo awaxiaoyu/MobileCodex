@@ -74,12 +74,12 @@ jobs:
         working-directory: apps/mobile
         run: |
           sed -i 's/-Xmx8G -XX:MaxMetaspaceSize=4G/-Xmx4G -XX:MaxMetaspaceSize=2G/' android/gradle.properties
-          flutter build apk --debug
+          flutter build apk --debug --split-per-abi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: mobile-codex-debug-apk
-          path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
+          name: mobile-codex-debug-apk-x86_64
+          path: apps/mobile/build/app/outputs/flutter-apk/app-x86_64-debug.apk
           if-no-files-found: error
           retention-days: 14
