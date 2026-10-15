@@ -35,6 +35,8 @@ class _TaskPageState extends State<TaskPage> {
   final client = BridgeClient(), input = TextEditingController();
   final scaffold = GlobalKey<ScaffoldState>();
   StreamSubscription<Map<String, dynamic>>? subscription;
+  Timer? refreshTimer;
+  bool refreshQueued = false;
   List<dynamic> threads = [], models = [], artifacts = [], projects = [];
   String projectId = 'workspace';
   Map<String, dynamic>? backend, thread;
@@ -55,11 +57,20 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   void refresh() {
-    if (mounted) setState(() {});
+    if (!mounted || refreshQueued) return;
+    refreshQueued = true;
+    refreshTimer = Timer(const Duration(milliseconds: 33), () {
+      refreshTimer = null;
+      refreshQueued = false;
+      if (mounted) setState(() {});
+    });
   }
 
   void setNotice(String text) {
-    if (mounted) setState(() => notice = text);
+    if (mounted) {
+      notice = text;
+      refresh();
+    }
   }
 
   Future<Map<String, dynamic>> call(
@@ -260,8 +271,13 @@ class _TaskPageState extends State<TaskPage> {
     await snapshot();
   }
 
-  Future<void> selectThread(Map<String, dynamic> selected) async {
-    await call('bridge.thread.resume', {'threadId': selected['id']});
+  Future<void> selectThread(
+    Map<String, dynamic> selected, {
+    bool resumeExisting = true,
+  }) async {
+    if (resumeExisting) {
+      await call('bridge.thread.resume', {'threadId': selected['id']});
+    }
     thread = {...selected, 'turns': <dynamic>[]};
     approvals.clear();
     diff = '';
@@ -640,6 +656,7 @@ class _TaskPageState extends State<TaskPage> {
                     });
                     await selectThread(
                       Map<String, dynamic>.from(created['payload']['thread']),
+                      resumeExisting: false,
                     );
                   });
                 },
@@ -744,21 +761,23 @@ class _TaskPageState extends State<TaskPage> {
                       padding: const EdgeInsets.all(16),
                       children: [
                         for (final item in items)
-                          Card(
-                            color: item['type'] == 'userMessage'
-                                ? Theme.of(context)
-                                      .colorScheme
-                                      .secondaryContainer
-                                : null,
-                            child: Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: MarkdownBody(
-                                selectable: true,
-                                data:
-                                    item['text']?.toString() ??
-                                    (item['content'] as List? ?? [])
-                                        .map((c) => c['text'])
-                                        .join('\n'),
+                          RepaintBoundary(
+                            child: Card(
+                              color: item['type'] == 'userMessage'
+                                  ? Theme.of(context)
+                                        .colorScheme
+                                        .secondaryContainer
+                                  : null,
+                              child: Padding(
+                                padding: const EdgeInsets.all(14),
+                                child: MarkdownBody(
+                                  selectable: true,
+                                  data:
+                                      item['text']?.toString() ??
+                                      (item['content'] as List? ?? [])
+                                          .map((c) => c['text'])
+                                          .join('\n'),
+                                ),
                               ),
                             ),
                           ),
@@ -898,6 +917,7 @@ class _TaskPageState extends State<TaskPage> {
 
   @override
   void dispose() {
+    refreshTimer?.cancel();
     subscription?.cancel();
     client.removeListener(refresh);
     client.dispose();
