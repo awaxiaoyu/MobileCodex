@@ -31,6 +31,7 @@
 - 真正的本机 HTTPS/WSS：拒绝未配对、配对只使用一次、认证 RPC、撤销关闭连接通过。
 - Flutter 与 Node Bridge 的真实本机连接：错误证书 pin 被拒绝，正确 pin 配对、WSS RPC、撤销处理通过。任务 backend 在此测试中是空 registry；不等同实体手机实测。
 - Flutter widget 测试通过；Flutter analyze 无问题；Android assets bundle 编译成功。
+- GitHub Actions Ubuntu runner：Node typecheck/test、Flutter analyze/test、`flutter build apk --debug` 全部通过。[构建 run](https://github.com/awaxiaoyu/MobileCodex/actions/runs/38661032222) 用时 8 分 55 秒，APK artifact 已下载，archive SHA-256 与 GitHub digest 一致；详情见 `docs/evidence/android-ci-build.json`。
 
 ## 尚未验收
 
@@ -39,7 +40,7 @@
 - chunked 还原已测试及长 thread/read 实机通过，但该次长读取是否实际走 chunked 未做独立计数证明。
 - 真实任务生成的附件通过实体手机预览/分享；当前 file scoping 测试使用本机 fixture。
 - 大量输出和网络断开后的手机恢复。snapshot/事件缓存逻辑与客户端实现存在，尚未进行实体手机故障注入验收。
-- Android APK：已尝试，本机 JDK 21/Android SDK 36 可用，但 Gradle distribution 重定向 GitHub 时网络超时；没有 APK。iOS 未在 Windows 构建。
+- Android APK 已通过 GitHub Actions 生成；实体 Android 安装与配对仍待验收。iOS 未在 Windows 构建。
 - 独立 DLL/Windows native loader、installer/service、自动启动、多版本兼容；当前交付是 Frida helper 路线。
 
 不把“函数存在”“模拟通过”“当前 Desktop 实测”“实体手机验收”混为同一种状态。

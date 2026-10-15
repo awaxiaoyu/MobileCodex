@@ -15,7 +15,7 @@
 | 配对、认证 WSS、证书 pinning、撤销 | Node/Dart 真实本机传输测试通过 |
 | 有界事件缓存、重连、任务附件引用与下载 | 实现完成，核心模拟测试通过；真实手机断线/下载待验收 |
 | Flutter 聊天/项目选择、model/effort/Plan、问题/审批、Diff/附件分享 | analyze、widget/连接测试及 Android assets bundle 编译通过 |
-| Android APK | 尚未生成：Gradle 下载被 GitHub 网络超时阻断 |
+| Android APK | GitHub Actions Ubuntu runner 构建通过，debug APK 已下载；实体手机待验收 |
 
 Terminal、通用文件系统、IDE、Worktree/Git 管理器、Browser 控制、Desktop 布局仍按范围裁剪留在电脑。手机发送任务时，Agent 继续使用电脑原工具和权限。
 
@@ -97,11 +97,13 @@ node scripts/smoke-plan.ts
 .local/flutter/bin/flutter.bat analyze --no-pub apps/mobile
 ```
 
-Flutter 在 `apps/mobile` 下运行 `flutter test`、`flutter build bundle --target-platform android-arm64`、`flutter build apk --debug`。本机 Android SDK/JDK 已发现，但 Gradle distribution 下载超时，APK 仍待成功打包；iOS 需要 macOS/Xcode 构建。
+Flutter 在 `apps/mobile` 下运行 `flutter test`、`flutter build bundle --target-platform android-arm64`、`flutter build apk --debug`。本机 Gradle distribution 下载曾超时，Android APK 已改由 GitHub Actions 成功打包；iOS 需要 macOS/Xcode 构建。
 
 ### GitHub Actions Android 构建
 
-仓库的 `Android APK` workflow 使用 GitHub-hosted Ubuntu runner，依次执行 Node bridge 的 typecheck/test、Flutter analyze/test，并上传 `mobile-codex-debug-apk` artifact。推送到 `master`（涉及 Bridge 或 Android 文件时）会自动构建，也可以在 GitHub Actions 页面用 `Run workflow` 手动触发。APK 下载路径为 `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`。
+仓库的 `Android APK` workflow 使用 GitHub-hosted Ubuntu runner，依次执行 Node bridge 的 typecheck/test、Flutter analyze/test，并上传 `mobile-codex-debug-apk` artifact（保留 14 天）。推送到 `main`（涉及 Bridge 或 Android 文件时）会自动构建，也可以在 GitHub Actions 页面用 `Run workflow` 手动触发。APK 输出路径为 `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`。
+
+[首次成功构建](https://github.com/awaxiaoyu/MobileCodex/actions/runs/38661032222) 用时 8 分 55 秒。下载后的本地 APK 在 `.local/artifacts/android-debug/app-debug.apk`；artifact 校验和见 [构建记录](docs/evidence/android-ci-build.json)。这是 debug 签名的测试安装包，尚未完成实体手机验收。
 
 - [实测记录](docs/p0-verification.md)
 - [后续验收](docs/NEXT.md)

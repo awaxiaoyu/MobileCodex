@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-15",
+  "repository": "awaxiaoyu/MobileCodex",
+  "runId": 38661032222,
+  "runUrl": "https://github.com/awaxiaoyu/MobileCodex/actions/runs/38661032222",
+  "sourceCommit": "96a4e911b7bc75135a185d057c31d52108725beb",
+  "runner": "ubuntu-24.04",
+  "conclusion": "success",
+  "durationSeconds": 535,
+  "checks": ["Node typecheck", "Node tests", "Flutter analyze", "Flutter tests", "Flutter debug APK build"],
+  "artifact": {
+    "name": "mobile-codex-debug-apk",
+    "id": 11939351377,
+    "archiveBytes": 79224236,
+    "archiveSha256": "b50bdc297ef12d328c73767bd7f2ec272137c603188ce64e4725d724edc764bd",
+    "expiresAt": "2026-10-29T00:45:11Z",
+    "downloadedAndHashVerified": true,
+    "apkBytes": 159936816,
+    "apkSha256": "bf80e14ee4cc25a8183b908d47a9b30d7aed692ed806f4e07db5b36783cdb08b",
+    "localApk": ".local/artifacts/android-debug/app-debug.apk"
+  },
+  "physicalDeviceTested": false
+}
