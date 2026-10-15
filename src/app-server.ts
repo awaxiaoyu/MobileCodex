@@ -75,7 +75,7 @@ export class AppServerBackend extends EventEmitter implements Backend {
       if (params.limit !== undefined && (!Number.isSafeInteger(params.limit) || params.limit < 1 || params.limit > 50)) throw new BridgeError('protocol.invalid_params', 'limit must be 1..50');
       if (params.cursor !== undefined) nonempty(params.cursor, 'cursor');
       const result = await this.rpc!.request('thread/list', { ...params, cwd: this.workspace, limit: params.limit ?? 20 });
-      return { threads: result.data.map(threadView), nextCursor: result.nextCursor };
+      return { threads: result.data.map((thread: any) => ({ ...threadView(thread), projectId: 'workspace' })), nextCursor: result.nextCursor };
     }
     if (method === 'bridge.thread.read') {
       fields(params, ['threadId']);

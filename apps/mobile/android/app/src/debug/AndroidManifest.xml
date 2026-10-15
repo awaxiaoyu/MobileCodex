@@ -4,4 +4,11 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- MuMu's Vulkan driver presents black frames with Impeller. Keep the
+         emulator debug build on Skia; release builds use Flutter's default. -->
+    <application>
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
+    </application>
 </manifest>

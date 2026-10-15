@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { resolve } from 'node:path';
 import { BridgeError } from './errors.ts';
 import { fields, nonempty } from './policy.ts';
-import { threadView } from './views.ts';
+import { projectIdForThread, threadView } from './views.ts';
 import { validateNative } from './schema.ts';
 import { fileURLToPath } from 'node:url';
 import type { Backend, JsonObject, NativeId } from './types.ts';
@@ -142,7 +142,18 @@ export class FridaBackend extends EventEmitter implements Backend {
       for (const project of projects) this.projectRoots.set(project.projectId, project.path);
       return { projects: projects.length ? projects.map((p: any) => ({ projectId: p.projectId, label: p.label, hostId: p.hostId })) : [{ projectId: 'workspace', label: 'Bridge workspace', hostId: 'local' }] };
     }
-    if (method === 'bridge.thread.list') { fields(params, ['limit', 'cursor']); const result = await this.send('call', { method: 'thread/list', params }); this.verifiedMethods.add('bridge.thread.list'); return { threads: (result.data ?? []).map(threadView), nextCursor: result.nextCursor }; }
+    if (method === 'bridge.thread.list') {
+      fields(params, ['limit', 'cursor']);
+      const result = await this.send('call', { method: 'thread/list', params });
+      this.verifiedMethods.add('bridge.thread.list');
+      return {
+        threads: (result.data ?? []).map((thread: any) => {
+          const projectId = projectIdForThread(thread, this.projectRoots);
+          return { ...threadView(thread), ...(projectId ? { projectId } : {}) };
+        }),
+        nextCursor: result.nextCursor,
+      };
+    }
     if (method === 'bridge.thread.read') { fields(params, ['threadId']); nonempty(params.threadId, 'threadId'); const result = await this.send('call', { method: 'thread/read', params: { threadId: params.threadId, includeTurns: true } }); this.verifiedMethods.add('bridge.thread.read'); return { thread: threadView(result.thread) }; }
     if (method === 'bridge.thread.create') {
       if (!this.options.allowControl) throw new BridgeError('policy.control_disabled', 'Thread creation is disabled');
@@ -154,7 +165,7 @@ export class FridaBackend extends EventEmitter implements Backend {
       validateNative('ThreadStartParams', native);
       const result = await this.send('call', { method: 'thread/start', params: native });
       this.verifiedMethods.add(method);
-      return { thread: threadView(result.thread) };
+      return { thread: { ...threadView(result.thread), projectId: params.projectId } };
     }
     if (method === 'bridge.thread.resume') {
       if (!this.options.allowControl) throw new BridgeError('policy.control_disabled', 'Thread resume is disabled');

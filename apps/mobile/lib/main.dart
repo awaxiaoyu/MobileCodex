@@ -26,22 +26,29 @@ class MobileCodexApp extends StatelessWidget {
 }
 
 class TaskPage extends StatefulWidget {
-  const TaskPage({super.key});
+  const TaskPage({super.key, this.client});
+  final BridgeClient? client;
   @override
   State<TaskPage> createState() => _TaskPageState();
 }
 
 class _TaskPageState extends State<TaskPage> {
-  final client = BridgeClient(), input = TextEditingController();
+  late final BridgeClient client;
+  late final bool ownsClient;
+  final input = TextEditingController();
   final scaffold = GlobalKey<ScaffoldState>();
   StreamSubscription<Map<String, dynamic>>? subscription;
   Timer? refreshTimer;
   bool refreshQueued = false;
   List<dynamic> threads = [], models = [], artifacts = [], projects = [];
   String projectId = 'workspace';
+  final pinnedThreadIds = <String>{};
+  final pinnedThreadSummaries = <String, Map<String, dynamic>>{};
+  late final Future<void> pinnedLoad;
   Map<String, dynamic>? backend, thread;
   final approvals = <String, Map<String, dynamic>>{};
   final buffered = <Map<String, dynamic>>[];
+  final newThreads = <String>{};
   String? model, effort, turnId, streamId, unknownRequest;
   String mode = 'default', diff = '', notice = '';
   int seq = 0;
@@ -49,10 +56,113 @@ class _TaskPageState extends State<TaskPage> {
   @override
   void initState() {
     super.initState();
+    client = widget.client ?? BridgeClient();
+    ownsClient = widget.client == null;
     client.addListener(refresh);
     subscription = client.events.stream.listen(onEvent);
+    pinnedLoad = loadPinned();
+    unawaited(pinnedLoad);
     unawaited(
       client.restore().catchError((Object e) => setNotice(e.toString())),
+    );
+  }
+
+  Future<File> pinnedFile() async {
+    final directory = await getApplicationSupportDirectory();
+    return File('${directory.path}/pinned-threads.json');
+  }
+
+  Future<void> loadPinned() async {
+    try {
+      final file = await pinnedFile();
+      if (!await file.exists()) return;
+      final value = jsonDecode(await file.readAsString());
+      if (value is List) {
+        for (final entry in value) {
+          if (entry is Map && entry['id'] is String) {
+            final summary = Map<String, dynamic>.from(entry);
+            final id = summary['id'] as String;
+            pinnedThreadIds.add(id);
+            pinnedThreadSummaries[id] = summary;
+          } else if (entry is String) {
+            pinnedThreadIds.add(entry);
+          }
+        }
+        refresh();
+      }
+    } catch (_) {
+      // Pinning is a local convenience; a missing storage plugin must not
+      // prevent the bridge from connecting.
+    }
+  }
+
+  Future<void> persistPinned() async {
+    try {
+      final file = await pinnedFile();
+      await file.parent.create(recursive: true);
+      await file.writeAsString(
+        jsonEncode([
+          for (final id in pinnedThreadIds)
+            pinnedThreadSummaries[id] ?? {'id': id},
+        ]),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> togglePinned(Map<String, dynamic> chat) async {
+    await pinnedLoad;
+    final id = chat['id'] as String;
+    setState(() {
+      if (pinnedThreadIds.remove(id)) {
+        pinnedThreadSummaries.remove(id);
+      } else {
+        pinnedThreadIds.add(id);
+        pinnedThreadSummaries[id] = {
+          'id': id,
+          'title': chat['title']?.toString() ?? '聊天',
+          if (chat['projectId'] is String) 'projectId': chat['projectId'],
+        };
+      }
+    });
+    unawaited(persistPinned());
+  }
+
+  Widget sectionHeading(String title) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: Text(title, style: Theme.of(context).textTheme.titleSmall),
+    ),
+  );
+
+  Widget threadTile(Map<String, dynamic> chat) {
+    final id = chat['id'] as String;
+    final pinned = pinnedThreadIds.contains(id);
+    return ListTile(
+      key: ValueKey('thread-$id'),
+      dense: true,
+      selected: id == thread?['id'],
+      title: Text(
+        chat['title']?.toString() ?? '聊天',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: PopupMenuButton<String>(
+        key: ValueKey('thread-actions-$id'),
+        tooltip: '会话操作',
+        onSelected: (_) => togglePinned(chat),
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            key: ValueKey('pin-thread-$id'),
+            value: 'pin',
+            child: Text(pinned ? '取消置顶' : '置顶'),
+          ),
+        ],
+      ),
+      onTap: () {
+        Navigator.pop(context);
+        action(() => selectThread(Map<String, dynamic>.from(chat)));
+      },
     );
   }
 
@@ -122,11 +232,20 @@ class _TaskPageState extends State<TaskPage> {
     }
     backend = Map<String, dynamic>.from(shared);
     final catalogProjects = await call('bridge.project.list', {});
-    projects = catalogProjects['payload']['projects'] as List;
-    if (!projects.any((p) => p['projectId'] == projectId)) {
+    projects = (catalogProjects['payload']['projects'] as List)
+        .map(
+          (p) => {
+            'projectId': p['projectId'] ?? p['id'],
+            'label': p['label'] ?? p['name'] ?? p['projectId'] ?? p['id'],
+          },
+        )
+        .where((p) => p['projectId'] is String)
+        .toList();
+    if (!projects.any((p) => p['projectId'] == projectId) &&
+        projects.isNotEmpty) {
       projectId = projects.first['projectId'] as String;
     }
-    final chats = await call('bridge.thread.list', {'limit': 30});
+    final chats = await call('bridge.thread.list', {'limit': 50});
     threads = chats['payload']['threads'] as List;
     final catalog = await call('bridge.model.list', {'limit': 100});
     models = (catalog['payload']['data'] as List)
@@ -177,6 +296,7 @@ class _TaskPageState extends State<TaskPage> {
       approvals[event['id'] as String] = event;
     }
     if (event['method'] == 'event.task.status') {
+      if (p['turnId'] != null) newThreads.remove(event['threadId']);
       turnId = p['turnId'] as String? ?? turnId;
       if (['inProgress', 'started'].contains(p['status'])) running = true;
       if (['completed', 'interrupted', 'failed'].contains(p['status'])) {
@@ -186,6 +306,7 @@ class _TaskPageState extends State<TaskPage> {
       if (p['error'] != null) notice = jsonEncode(p['error']);
     }
     if (event['method'] == 'event.item.delta') {
+      newThreads.remove(event['threadId']);
       final turns = thread!['turns'] as List;
       Map<String, dynamic>? turn = turns
           .where((t) => t['id'] == p['turnId'])
@@ -215,7 +336,7 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Future<void> snapshot() async {
-    if (thread == null || syncing) return;
+    if (thread == null || syncing || newThreads.contains(thread!['id'])) return;
     syncing = true;
     try {
       Map<String, dynamic>? result;
@@ -271,20 +392,38 @@ class _TaskPageState extends State<TaskPage> {
     await snapshot();
   }
 
-  Future<void> selectThread(
-    Map<String, dynamic> selected, {
-    bool resumeExisting = true,
-  }) async {
-    if (resumeExisting) {
+  Future<void> selectThread(Map<String, dynamic> selected) async {
+    if (!newThreads.contains(selected['id'])) {
       await call('bridge.thread.resume', {'threadId': selected['id']});
     }
     thread = {...selected, 'turns': <dynamic>[]};
+    turnId = null;
+    running = false;
+    notice = '';
+    unknownRequest = null;
     approvals.clear();
     diff = '';
     artifacts = [];
     streamId = null;
     seq = 0;
     await snapshot();
+    refresh();
+  }
+
+  Future<void> createThread() async {
+    final created = await call('bridge.thread.create', {
+      'projectId': projectId,
+    });
+    final selected = Map<String, dynamic>.from(created['payload']['thread']);
+    selected['projectId'] = projectId;
+    if ((selected['title'] as String? ?? '').isEmpty) {
+      selected['title'] = '新聊天';
+    }
+    // A new Desktop thread has no rollout yet. Its create response is the
+    // initial state; resume/read only becomes available after the first turn.
+    newThreads.add(selected['id'] as String);
+    threads = [selected, ...threads.where((t) => t['id'] != selected['id'])];
+    await selectThread(selected);
   }
 
   Future<void> send() async {
@@ -312,6 +451,7 @@ class _TaskPageState extends State<TaskPage> {
       },
     );
     turnId = result['payload']['turn']?['id'] as String? ?? turnId;
+    newThreads.remove(thread!['id']);
     running = true;
     input.clear();
     setNotice('任务已提交');
@@ -616,6 +756,25 @@ class _TaskPageState extends State<TaskPage> {
       for (final turn in thread?['turns'] as List? ?? [])
         ...(turn['items'] as List),
     ];
+    final threadsById = {
+      for (final value in threads)
+        if (value is Map && value['id'] is String)
+          value['id'] as String: Map<String, dynamic>.from(value),
+    };
+    final pinnedChats = [
+      for (final id in pinnedThreadIds)
+        {...?pinnedThreadSummaries[id], ...?threadsById[id]},
+    ];
+    final projectIds = projects
+        .whereType<Map>()
+        .map((p) => p['projectId'])
+        .whereType<String>()
+        .toSet();
+    final recentThreads = threadsById.values.where(
+      (chat) =>
+          !pinnedThreadIds.contains(chat['id']) &&
+          (!projectIds.contains(chat['projectId']) || chat['projectId'] == null),
+    );
     return Scaffold(
       key: scaffold,
       appBar: AppBar(
@@ -648,18 +807,13 @@ class _TaskPageState extends State<TaskPage> {
               ListTile(
                 leading: const Icon(Icons.add),
                 title: const Text('新建聊天'),
-                onTap: () {
-                  Navigator.pop(context);
-                  action(() async {
-                    final created = await call('bridge.thread.create', {
-                      'projectId': projectId,
-                    });
-                    await selectThread(
-                      Map<String, dynamic>.from(created['payload']['thread']),
-                      resumeExisting: false,
-                    );
-                  });
-                },
+                enabled: !busy && backend != null,
+                onTap: busy || backend == null
+                    ? null
+                    : () {
+                        Navigator.pop(context);
+                        action(createThread);
+                      },
               ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -680,21 +834,39 @@ class _TaskPageState extends State<TaskPage> {
               Expanded(
                 child: ListView(
                   children: [
-                    for (final chat in threads)
-                      ListTile(
-                        selected: chat['id'] == thread?['id'],
+                    sectionHeading('置顶'),
+                    for (final chat in pinnedChats) threadTile(chat),
+                    sectionHeading('项目'),
+                    for (final project in projects)
+                      ExpansionTile(
+                        key: PageStorageKey('project-${project['projectId']}'),
+                        leading: const Icon(Icons.folder_outlined),
                         title: Text(
-                          chat['title']?.toString() ?? '聊天',
-                          maxLines: 2,
+                          project['label']?.toString() ?? '项目',
+                          maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        onTap: () {
-                          Navigator.pop(context);
-                          action(
-                            () => selectThread(Map<String, dynamic>.from(chat)),
-                          );
-                        },
+                        children: [
+                          for (final chat in threadsById.values.where(
+                            (chat) =>
+                                chat['projectId'] == project['projectId'] &&
+                                !pinnedThreadIds.contains(chat['id']),
+                          ))
+                            threadTile(chat),
+                          if (!threadsById.values.any(
+                            (chat) =>
+                                chat['projectId'] == project['projectId'] &&
+                                !pinnedThreadIds.contains(chat['id']),
+                          ))
+                            const ListTile(
+                              dense: true,
+                              title: Text('暂无会话'),
+                              enabled: false,
+                            ),
+                        ],
                       ),
+                    sectionHeading('最近'),
+                    for (final chat in recentThreads) threadTile(chat),
                   ],
                 ),
               ),
@@ -749,6 +921,7 @@ class _TaskPageState extends State<TaskPage> {
                 ),
               ),
             Expanded(
+              key: const ValueKey('conversation'),
               child: thread == null
                   ? Center(
                       child: FilledButton.icon(
@@ -758,10 +931,12 @@ class _TaskPageState extends State<TaskPage> {
                       ),
                     )
                   : ListView(
+                      key: PageStorageKey(thread!['id']),
                       padding: const EdgeInsets.all(16),
                       children: [
                         for (final item in items)
                           RepaintBoundary(
+                            key: ValueKey(item['id']),
                             child: Card(
                               color: item['type'] == 'userMessage'
                                   ? Theme.of(context)
@@ -908,7 +1083,10 @@ class _TaskPageState extends State<TaskPage> {
                   ],
                 ),
               ),
-            if (busy) const LinearProgressIndicator(),
+            SizedBox(
+              height: 4,
+              child: busy ? const LinearProgressIndicator() : null,
+            ),
           ],
         ),
       ),
@@ -920,7 +1098,7 @@ class _TaskPageState extends State<TaskPage> {
     refreshTimer?.cancel();
     subscription?.cancel();
     client.removeListener(refresh);
-    client.dispose();
+    if (ownsClient) client.dispose();
     input.dispose();
     super.dispose();
   }

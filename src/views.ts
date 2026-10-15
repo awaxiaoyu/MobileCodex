@@ -1,3 +1,5 @@
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+
 // Mobile task views deliberately exclude raw command output, environment,
 // filesystem metadata, credentials, and low-level tool payloads.
 export function threadView(thread: any) {
@@ -8,6 +10,7 @@ export function threadView(thread: any) {
     status: t.status,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
+    ...(typeof t.projectId === 'string' ? { projectId: t.projectId } : {}),
     ...(t.turns ? { turns: t.turns.map((turn: any) => ({
       id: turn.id,
       status: turn.status,
@@ -20,6 +23,24 @@ export function threadView(thread: any) {
       })),
     })) } : {}),
   };
+}
+
+export function projectIdForThread(thread: any, roots: Map<string, string>) {
+  if (typeof thread?.projectId === 'string' && roots.has(thread.projectId)) {
+    return thread.projectId;
+  }
+  if (typeof thread?.cwd !== 'string' || !isAbsolute(thread.cwd)) return undefined;
+
+  let match: { projectId: string; length: number } | undefined;
+  for (const [projectId, projectRoot] of roots) {
+    const root = resolve(projectRoot);
+    const pathFromRoot = relative(root, resolve(thread.cwd));
+    const outside = pathFromRoot === '..' || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot);
+    if (outside) continue;
+    const length = root.length;
+    if (!match || length > match.length) match = { projectId, length };
+  }
+  return match?.projectId;
 }
 
 export function mobileNotification(message: any): { method: string; data: any } | undefined {
