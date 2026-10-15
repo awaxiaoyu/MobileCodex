@@ -1,0 +1,148 @@
+[
+  {
+    "v": 1,
+    "id": "req_catalog_1",
+    "kind": "request",
+    "method": "bridge.capabilities.get",
+    "payload": {}
+  },
+  {
+    "v": 1,
+    "id": "req_turn_1",
+    "kind": "request",
+    "method": "codex.request",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "threadId": "thread_1",
+    "ack": {
+      "streamId": "stream_desktop_01_g3",
+      "seq": 1842
+    },
+    "payload": {
+      "method": "turn/start",
+      "params": {
+        "threadId": "thread_1",
+        "input": [
+          {
+            "type": "text",
+            "text": "运行测试并修复失败项"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "v": 1,
+    "kind": "event",
+    "method": "event.item.delta",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "threadId": "thread_1",
+    "turnId": "turn_2",
+    "streamId": "stream_desktop_01_g3",
+    "seq": 1843,
+    "payload": {
+      "source": "app-server",
+      "codexMethod": "item/agentMessage/delta",
+      "data": {
+        "threadId": "thread_1",
+        "turnId": "turn_2",
+        "itemId": "item_3",
+        "delta": "测试已通过"
+      }
+    }
+  },
+  {
+    "v": 1,
+    "kind": "server.request",
+    "id": "srvreq_9",
+    "method": "item/commandExecution/requestApproval",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "threadId": "thread_1",
+    "turnId": "turn_2",
+    "payload": {
+      "threadId": "thread_1",
+      "turnId": "turn_2",
+      "itemId": "item_3",
+      "command": "npm test",
+      "cwd": "C:\\work\\demo"
+    }
+  },
+  {
+    "v": 1,
+    "kind": "server.response",
+    "id": "srvreq_9",
+    "method": "item/commandExecution/requestApproval",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "payload": {
+      "decision": "accept"
+    }
+  },
+  {
+    "v": 1,
+    "id": "req_resume_1",
+    "kind": "request",
+    "method": "bridge.events.resume",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "payload": {
+      "streamId": "stream_desktop_01_g3",
+      "afterSeq": 1842
+    }
+  },
+  {
+    "v": 1,
+    "id": "req_resume_1",
+    "kind": "response",
+    "method": "bridge.events.resume",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "payload": {
+      "status": "replaying",
+      "streamId": "stream_desktop_01_g3",
+      "throughSeq": 1843
+    }
+  },
+  {
+    "v": 1,
+    "id": "req_resume_2",
+    "kind": "error",
+    "method": "bridge.events.resume",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "payload": {
+      "code": "snapshot.required",
+      "message": "请求的位置超出事件缓存；请读取 snapshot",
+      "retryable": false,
+      "data": {
+        "streamId": "stream_desktop_01_g3"
+      }
+    }
+  },
+  {
+    "v": 1,
+    "id": "req_query_1",
+    "kind": "request",
+    "method": "bridge.request.get",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "payload": {
+      "requestId": "req_turn_1"
+    }
+  },
+  {
+    "v": 1,
+    "id": "req_query_1",
+    "kind": "response",
+    "method": "bridge.request.get",
+    "backendId": "backend_desktop_01",
+    "backendGeneration": 3,
+    "payload": {
+      "requestId": "req_turn_1",
+      "status": "unknown"
+    }
+  }
+]
+
