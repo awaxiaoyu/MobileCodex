@@ -70,6 +70,20 @@ jobs:
           flutter analyze
           flutter test
 
+      - name: Install Android CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          for attempt in 1 2 3; do
+            rm -rf "${ANDROID_HOME}/cmake/3.22.1" "${ANDROID_HOME}/.temp"
+            if yes | "${sdkmanager}" --install "cmake;3.22.1"; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          exit 1
+
       - name: Build debug APK
         working-directory: apps/mobile
         run: |
