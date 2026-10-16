@@ -9,6 +9,13 @@ import 'package:share_plus/share_plus.dart';
 
 import 'bridge_client.dart';
 
+const _ink = Color(0xff151515);
+const _muted = Color(0xff8a8a86);
+const _line = Color(0xffe8e7e2);
+const _surface = Color(0xfff7f7f4);
+const _panel = Color(0xffffffff);
+const _wash = Color(0xffefefeb);
+
 void main() => runApp(const MobileCodexApp());
 
 class MobileCodexApp extends StatelessWidget {
@@ -19,17 +26,17 @@ class MobileCodexApp extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
       colorScheme: ColorScheme.fromSeed(
-        seedColor: const Color(0xff171717),
+        seedColor: _ink,
         brightness: Brightness.light,
       ),
-      scaffoldBackgroundColor: const Color(0xfffdfdfd),
-      canvasColor: Colors.white,
+      scaffoldBackgroundColor: _surface,
+      canvasColor: _panel,
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.white,
-        foregroundColor: Color(0xff111111),
+        foregroundColor: _ink,
         elevation: 0,
       ),
-      dividerColor: const Color(0xffeeeeee),
+      dividerColor: _line,
       fontFamily: 'SF Pro Text',
       useMaterial3: true,
     ),
@@ -147,7 +154,7 @@ class _TaskPageState extends State<TaskPage> {
     final project = projects
         .where((p) => p['projectId'] == projectId)
         .firstOrNull;
-    return project?['label']?.toString() ?? projectId;
+    return project?['label']?.toString() ?? '';
   }
 
   String chatTitle(Map<String, dynamic> chat) {
@@ -197,9 +204,9 @@ class _TaskPageState extends State<TaskPage> {
     style: IconButton.styleFrom(
       fixedSize: const Size(36, 36),
       backgroundColor: Colors.white,
-      foregroundColor: const Color(0xff111111),
-      shadowColor: const Color(0x18000000),
-      elevation: 1,
+      foregroundColor: _ink,
+      shadowColor: const Color(0x2e191916),
+      elevation: 3,
       padding: EdgeInsets.zero,
       shape: const CircleBorder(),
     ),
@@ -242,86 +249,93 @@ class _TaskPageState extends State<TaskPage> {
     return Material(
       color: Colors.transparent,
       key: ValueKey('thread-$id'),
-      child: Container(
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: Color(0xfff1f1f1))),
-        ),
-        // Keep the raw title available to semantics and existing integrations
-        // while the visible row uses the project/title composition.
-        child: Stack(
-          children: [
-            const Positioned.fill(child: IgnorePointer()),
-            ListTile(
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 0,
-                vertical: 1,
+      child: InkWell(
+        onTap: () {
+          setDrawer(false);
+          action(() => selectThread(Map<String, dynamic>.from(chat)));
+        },
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          decoration: const BoxDecoration(
+            border: Border(bottom: BorderSide(color: _line)),
+          ),
+          child: Stack(
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.chat_bubble_outline_rounded,
+                    size: 14,
+                    color: Color(0xffa0a19b),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          chatTitle(chat),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          chatMeta(chat),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 9, color: _muted),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    chat['updatedAt'] is String
+                        ? _relativeTime(chat['updatedAt'] as String)
+                        : '',
+                    style: const TextStyle(fontSize: 9, color: _muted),
+                  ),
+                ],
               ),
-              minVerticalPadding: 8,
-              leading: const Icon(
-                Icons.chat_bubble_outline_rounded,
-                size: 17,
-                color: Color(0xff6e6e6e),
-              ),
-              selected: id == thread?['id'],
-              selectedTileColor: const Color(0xfff6f6f6),
-              title: Text(
-                chatTitle(chat),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
+              if (legacyExpandedProjectId != null &&
+                  chat['projectId'] == legacyExpandedProjectId &&
+                  chatTitle(chat) != (chat['title']?.toString() ?? '聊天'))
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  child: Opacity(
+                    opacity: 0,
+                    child: Text(chat['title']?.toString() ?? '聊天'),
+                  ),
                 ),
-              ),
-              subtitle: Text(
-                chatMeta(chat),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: Color(0xff8b8b8b)),
-              ),
-              trailing: Text(
-                chat['updatedAt'] is String
-                    ? _relativeTime(chat['updatedAt'] as String)
-                    : '',
-                style: const TextStyle(fontSize: 10, color: Color(0xff858585)),
-              ),
-              onTap: () {
-                setDrawer(false);
-                action(() => selectThread(Map<String, dynamic>.from(chat)));
-              },
-            ),
-            if (legacyExpandedProjectId != null &&
-                chat['projectId'] == legacyExpandedProjectId &&
-                chatTitle(chat) != (chat['title']?.toString() ?? '聊天'))
               Positioned(
-                left: 0,
                 top: 0,
+                right: 0,
                 child: Opacity(
                   opacity: 0,
-                  child: Text(chat['title']?.toString() ?? '聊天'),
+                  child: PopupMenuButton<String>(
+                    key: ValueKey('thread-actions-$id'),
+                    tooltip: 'Chat actions',
+                    icon: const Icon(Icons.more_horiz, size: 18),
+                    onSelected: (_) => togglePinned(chat),
+                    itemBuilder: (context) => [
+                      PopupMenuItem(
+                        key: ValueKey('pin-thread-$id'),
+                        value: 'pin',
+                        child: Text(pinned ? 'Unpin' : 'Pin'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            Positioned(
-              top: 0,
-              right: 0,
-              child: Opacity(
-                opacity: 0,
-                child: PopupMenuButton<String>(
-                  key: ValueKey('thread-actions-$id'),
-                  tooltip: 'Chat actions',
-                  icon: const Icon(Icons.more_horiz, size: 18),
-                  onSelected: (_) => togglePinned(chat),
-                  itemBuilder: (context) => [
-                    PopupMenuItem(
-                      key: ValueKey('pin-thread-$id'),
-                      value: 'pin',
-                      child: Text(pinned ? 'Unpin' : 'Pin'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -976,6 +990,7 @@ class _TaskPageState extends State<TaskPage> {
           key: ValueKey(item['id']),
           child: _TimelineItem(
             isUser: item['type'] == 'userMessage',
+            label: item['type'] == 'userMessage' ? 'You · now' : 'Codex · now',
             child: MarkdownBody(
               selectable: true,
               data:
@@ -1149,7 +1164,7 @@ class _TaskPageState extends State<TaskPage> {
                               ],
                             ),
                             style: FilledButton.styleFrom(
-                              minimumSize: const Size(112, 44),
+                              minimumSize: const Size(116, 44),
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 16,
                               ),
@@ -1195,10 +1210,11 @@ class _TaskPageState extends State<TaskPage> {
                               fixedSize: const Size(44, 44),
                               backgroundColor: Colors.white,
                               foregroundColor: const Color(0xff151515),
-                              shadowColor: const Color(0x18000000),
-                              elevation: 1,
+                              shadowColor: const Color(0x1f191916),
+                              elevation: 2,
                               padding: EdgeInsets.zero,
                               shape: const CircleBorder(),
+                              side: const BorderSide(color: Color(0xffdeded9)),
                             ),
                           ),
                         ],
@@ -1233,265 +1249,318 @@ class _TaskPageState extends State<TaskPage> {
             bottom: 0,
             child: Stack(
               children: [
-                ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(20),
-                    bottomLeft: Radius.circular(20),
-                  ),
-                  child: Stack(
-                    children: [
-                      const Positioned.fill(
-                        child: ColoredBox(color: Colors.white),
-                      ),
-                      Positioned.fill(
-                        child: SafeArea(
-                          child: Column(
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  12,
-                                  16,
-                                  7,
-                                ),
-                                child: Row(
-                                  children: [
-                                    menuButton(),
-                                    const SizedBox(width: 12),
-                                    if (thread != null) ...[
-                                      IconButton(
-                                        tooltip: '刷新',
-                                        onPressed: () => action(load),
-                                        icon: const Icon(
-                                          Icons.refresh_rounded,
-                                          size: 18,
-                                        ),
-                                        padding: EdgeInsets.zero,
-                                        constraints:
-                                            const BoxConstraints.tightFor(
-                                              width: 28,
-                                              height: 28,
-                                            ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                    ],
-                                    Expanded(
-                                      child: Text(
-                                        title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: thread == null ? 22 : 15,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Container(
-                                      width: 7,
-                                      height: 7,
-                                      decoration: BoxDecoration(
-                                        color: client.status == '已连接'
-                                            ? const Color(0xff4b9b67)
-                                            : const Color(0xffb0b0b0),
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      client.status == '已连接'
-                                          ? 'Connected'
-                                          : client.status,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        color: Color(0xff737373),
-                                      ),
-                                    ),
-                                    if (thread?['title'] == '新聊天')
-                                      const SizedBox.shrink(
-                                        child: Opacity(
-                                          opacity: 0,
-                                          child: Text('新聊天'),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              if (thread != null)
+                DecoratedBox(
+                  decoration: open
+                      ? const BoxDecoration(
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(36),
+                            bottomLeft: Radius.circular(36),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x3d1c1c19),
+                              blurRadius: 11,
+                              offset: Offset(-5, 0),
+                            ),
+                            BoxShadow(
+                              color: Color(0x1c1c1c19),
+                              blurRadius: 18,
+                              offset: Offset(-11, 0),
+                            ),
+                          ],
+                        )
+                      : const BoxDecoration(),
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(36),
+                      bottomLeft: Radius.circular(36),
+                    ),
+                    child: Stack(
+                      children: [
+                        const Positioned.fill(
+                          child: ColoredBox(color: _surface),
+                        ),
+                        Positioned.fill(
+                          child: SafeArea(
+                            child: Column(
+                              children: [
                                 Padding(
                                   padding: const EdgeInsets.fromLTRB(
-                                    64,
-                                    0,
                                     16,
-                                    6,
+                                    12,
+                                    16,
+                                    7,
                                   ),
-                                  child: Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: Text(
-                                      statusLabel,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: running
-                                            ? const Color(0xff4b9b67)
-                                            : const Color(0xff858585),
+                                  child: Row(
+                                    children: [
+                                      menuButton(),
+                                      const SizedBox(width: 12),
+                                      if (thread != null) ...[
+                                        IconButton(
+                                          tooltip: '刷新',
+                                          onPressed: () => action(load),
+                                          icon: const Icon(
+                                            Icons.refresh_rounded,
+                                            size: 18,
+                                          ),
+                                          padding: EdgeInsets.zero,
+                                          constraints:
+                                              const BoxConstraints.tightFor(
+                                                width: 28,
+                                                height: 28,
+                                              ),
+                                        ),
+                                        const SizedBox(width: 4),
+                                      ],
+                                      Expanded(
+                                        child: Text(
+                                          title,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: thread == null ? 22 : 15,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        width: 7,
+                                        height: 7,
+                                        decoration: BoxDecoration(
+                                          color: client.status == '已连接'
+                                              ? const Color(0xff6d9b7f)
+                                              : const Color(0xffb0b0b0),
+                                          shape: BoxShape.circle,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        client.status == '已连接'
+                                            ? 'Connected'
+                                            : client.status,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: _muted,
+                                        ),
+                                      ),
+                                      if (thread?['title'] == '新聊天')
+                                        const SizedBox.shrink(
+                                          child: Opacity(
+                                            opacity: 0,
+                                            child: Text('新聊天'),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                if (thread != null)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(
+                                      64,
+                                      0,
+                                      16,
+                                      6,
+                                    ),
+                                    child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        statusLabel,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: running
+                                              ? const Color(0xff4b9b67)
+                                              : const Color(0xff858585),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              Expanded(
-                                child: thread == null
-                                    ? Center(
-                                        child: SingleChildScrollView(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 24,
-                                          ),
-                                          child: Column(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              const Icon(
-                                                Icons.auto_awesome,
-                                                size: 32,
-                                                color: Color(0xff1a1a1a),
-                                              ),
-                                              const SizedBox(height: 18),
-                                              const Text(
-                                                'What are we building today?',
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                  fontSize: 24,
-                                                  fontWeight: FontWeight.w700,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Text(
-                                                client.status == '已连接'
-                                                    ? 'Connected to your workspace'
-                                                    : 'Connect a computer to get started',
-                                                textAlign: TextAlign.center,
-                                                style: const TextStyle(
-                                                  fontSize: 13,
-                                                  color: Color(0xff858585),
-                                                ),
-                                              ),
-                                              const SizedBox(height: 26),
-                                              Wrap(
-                                                spacing: 8,
-                                                runSpacing: 8,
-                                                alignment: WrapAlignment.center,
-                                                children: [
-                                                  for (final suggestion in [
-                                                    'Review a diff',
-                                                    'Plan a feature',
-                                                    'Fix a bug',
-                                                  ])
-                                                    OutlinedButton(
-                                                      onPressed: () {
-                                                        input.text = suggestion;
-                                                        setDrawer(false);
-                                                      },
-                                                      child: Text(
-                                                        suggestion,
-                                                        style: const TextStyle(
-                                                          fontSize: 12,
+                                Expanded(
+                                  child: thread == null
+                                      ? LayoutBuilder(
+                                          builder: (context, constraints) =>
+                                              SingleChildScrollView(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 17,
+                                                    ),
+                                                child: ConstrainedBox(
+                                                  constraints: BoxConstraints(
+                                                    minHeight:
+                                                        constraints.maxHeight,
+                                                  ),
+                                                  child: Column(
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment
+                                                            .center,
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Container(
+                                                        width: 39,
+                                                        height: 39,
+                                                        margin:
+                                                            const EdgeInsets.only(
+                                                              bottom: 20,
+                                                            ),
+                                                        decoration: BoxDecoration(
+                                                          color: _ink,
+                                                          borderRadius:
+                                                              BorderRadius.circular(
+                                                                13,
+                                                              ),
+                                                        ),
+                                                        child: const Icon(
+                                                          Icons.auto_awesome,
+                                                          size: 19,
+                                                          color: Colors.white,
                                                         ),
                                                       ),
-                                                    ),
-                                                ],
-                                              ),
-                                              const Opacity(
-                                                opacity: 0,
-                                                child: Text('打开聊天列表'),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      )
-                                    : ListView(
-                                        key: PageStorageKey(thread!['id']),
-                                        padding: const EdgeInsets.fromLTRB(
-                                          20,
-                                          12,
-                                          20,
-                                          20,
-                                        ),
-                                        children: [
-                                          if (notice.isNotEmpty)
-                                            Padding(
-                                              padding: const EdgeInsets.only(
-                                                bottom: 10,
-                                              ),
-                                              child: Text(
-                                                notice,
-                                                maxLines: 3,
-                                                style: const TextStyle(
-                                                  color: Color(0xffa05b42),
-                                                  fontSize: 12,
+                                                      const Text(
+                                                        'What are we building today?',
+                                                        style: TextStyle(
+                                                          fontSize: 24,
+                                                          fontWeight:
+                                                              FontWeight.w600,
+                                                          letterSpacing: -.8,
+                                                          height: 1.08,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 10,
+                                                      ),
+                                                      Text(
+                                                        client.status == '已连接'
+                                                            ? 'Start a task with your connected workspace. Codex will keep the work moving while you stay in control.'
+                                                            : 'Connect a computer to get started',
+                                                        style: const TextStyle(
+                                                          color: _muted,
+                                                          fontSize: 12,
+                                                          height: 1.5,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(
+                                                        height: 20,
+                                                      ),
+                                                      for (
+                                                        var index = 0;
+                                                        index < 3;
+                                                        index++
+                                                      )
+                                                        _SuggestionRow(
+                                                          label: const [
+                                                            'Review a diff',
+                                                            'Plan a feature',
+                                                            'Fix a bug',
+                                                          ][index],
+                                                          isFirst: index == 0,
+                                                          onTap: () {
+                                                            input.text = const [
+                                                              'Review a diff',
+                                                              'Plan a feature',
+                                                              'Fix a bug',
+                                                            ][index];
+                                                            setDrawer(false);
+                                                          },
+                                                        ),
+                                                      const SizedBox.shrink(
+                                                        child: Opacity(
+                                                          opacity: 0,
+                                                          child: Text('打开聊天列表'),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
                                                 ),
                                               ),
-                                            ),
-                                          if (unknownRequest != null)
-                                            TextButton(
-                                              onPressed: () => action(() async {
-                                                final result = await call(
-                                                  'bridge.request.get',
-                                                  {'requestId': unknownRequest},
-                                                );
-                                                setNotice(
-                                                  jsonEncode(result['payload']),
-                                                );
-                                              }),
-                                              child: const Text(
-                                                'Check the previous request result',
+                                        )
+                                      : ListView(
+                                          key: PageStorageKey(thread!['id']),
+                                          padding: const EdgeInsets.fromLTRB(
+                                            20,
+                                            12,
+                                            20,
+                                            20,
+                                          ),
+                                          children: [
+                                            if (notice.isNotEmpty)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  bottom: 10,
+                                                ),
+                                                child: Text(
+                                                  notice,
+                                                  maxLines: 3,
+                                                  style: const TextStyle(
+                                                    color: Color(0xffa05b42),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
                                               ),
-                                            ),
-                                          for (final request
-                                              in approvals.values)
-                                            _ApprovalRow(
-                                              request: request,
-                                              onTap: () => action(
-                                                () => respond(request),
+                                            if (unknownRequest != null)
+                                              TextButton(
+                                                onPressed: () =>
+                                                    action(() async {
+                                                      final result = await call(
+                                                        'bridge.request.get',
+                                                        {
+                                                          'requestId':
+                                                              unknownRequest,
+                                                        },
+                                                      );
+                                                      setNotice(
+                                                        jsonEncode(
+                                                          result['payload'],
+                                                        ),
+                                                      );
+                                                    }),
+                                                child: const Text(
+                                                  'Check the previous request result',
+                                                ),
                                               ),
-                                            ),
-                                          ...children,
-                                        ],
-                                      ),
-                              ),
-                              composer,
-                              SizedBox(
-                                height: busy ? 3 : 8,
-                                child: busy
-                                    ? const LinearProgressIndicator(
-                                        minHeight: 3,
-                                      )
-                                    : null,
-                              ),
-                            ],
+                                            for (final request
+                                                in approvals.values)
+                                              _ApprovalRow(
+                                                request: request,
+                                                onTap: () => action(
+                                                  () => respond(request),
+                                                ),
+                                              ),
+                                            ...children,
+                                          ],
+                                        ),
+                                ),
+                                composer,
+                                SizedBox(
+                                  height: busy ? 3 : 8,
+                                  child: busy
+                                      ? const LinearProgressIndicator(
+                                          minHeight: 3,
+                                        )
+                                      : null,
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                      if (open)
-                        const Positioned.fill(
-                          child: IgnorePointer(
-                            child: ColoredBox(color: Color(0x1f000000)),
+                        if (open)
+                          const Positioned.fill(
+                            child: IgnorePointer(
+                              child: ColoredBox(color: Color(0x1f000000)),
+                            ),
                           ),
-                        ),
-                    ],
-                  ),
-                ),
-                if (open)
-                  const Positioned.fill(
-                    child: IgnorePointer(
-                      child: CustomPaint(painter: _DrawerConnectionPainter()),
+                      ],
                     ),
                   ),
+                ),
               ],
             ),
           ),
         ],
       ),
     );
-    return Material(color: const Color(0xfffdfdfd), child: body);
+    return Material(color: _surface, child: body);
   }
 
   @override
@@ -1505,27 +1574,70 @@ class _TaskPageState extends State<TaskPage> {
   }
 }
 
-class _DrawerConnectionPainter extends CustomPainter {
-  const _DrawerConnectionPainter();
+class _SuggestionRow extends StatelessWidget {
+  const _SuggestionRow({
+    required this.label,
+    required this.isFirst,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool isFirst;
+  final VoidCallback onTap;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final corner = 20.0 > size.height / 2 ? size.height / 2 : 20.0;
-    final edge = Path()
-      ..moveTo(corner, 0)
-      ..quadraticBezierTo(0, 0, 0, corner)
-      ..lineTo(0, size.height - corner)
-      ..quadraticBezierTo(0, size.height, corner, size.height);
-    final paint = Paint()
-      ..color = const Color(0x1a000000)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
-    canvas.drawPath(edge, paint);
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        constraints: const BoxConstraints(minHeight: 42),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          border: Border(
+            top: isFirst ? const BorderSide(color: _line) : BorderSide.none,
+            bottom: const BorderSide(color: _line),
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: 12, color: Color(0xff6c6d67)),
+              ),
+            ),
+            const Icon(
+              Icons.north_east_rounded,
+              size: 15,
+              color: Color(0xffa7a8a1),
+            ),
+          ],
+        ),
+      ),
+    );
   }
+}
+
+class _TimelineLabel extends StatelessWidget {
+  const _TimelineLabel(this.text);
+
+  final String text;
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Text(
+        text,
+        style: const TextStyle(
+          color: _muted,
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          letterSpacing: .02,
+        ),
+      ),
+    );
+  }
 }
 
 class _TimelineItem extends StatelessWidget {
@@ -1533,10 +1645,12 @@ class _TimelineItem extends StatelessWidget {
     required this.child,
     this.isUser = false,
     this.active = false,
+    this.label,
   });
   final Widget child;
   final bool isUser;
   final bool active;
+  final String? label;
 
   @override
   Widget build(BuildContext context) {
@@ -1556,15 +1670,26 @@ class _TimelineItem extends StatelessWidget {
                     margin: const EdgeInsets.only(top: 5),
                     decoration: BoxDecoration(
                       color: active
-                          ? const Color(0xff4b9b67)
+                          ? const Color(0xff4d6f62)
                           : isUser
-                          ? const Color(0xff202020)
-                          : const Color(0xffbcbcbc),
+                          ? _ink
+                          : const Color(0xffb4b7b2),
                       shape: BoxShape.circle,
+                      border: isUser || active
+                          ? null
+                          : Border.all(color: const Color(0xffc3c5c0)),
+                      boxShadow: active
+                          ? const [
+                              BoxShadow(
+                                color: Color(0x66e7f0eb),
+                                spreadRadius: 3,
+                              ),
+                            ]
+                          : null,
                     ),
                   ),
                   Expanded(
-                    child: Container(width: 1, color: const Color(0xffe8e8e8)),
+                    child: Container(width: 1, color: const Color(0xffd9dad5)),
                   ),
                 ],
               ),
@@ -1574,22 +1699,43 @@ class _TimelineItem extends StatelessWidget {
               child: isUser
                   ? Align(
                       alignment: Alignment.centerRight,
-                      child: Container(
-                        constraints: const BoxConstraints(maxWidth: 310),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 13,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xfff1f1f1),
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: child,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          if (label != null)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: _TimelineLabel(label!),
+                            ),
+                          Container(
+                            constraints: const BoxConstraints(maxWidth: 310),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 11,
+                            ),
+                            decoration: const BoxDecoration(
+                              color: Color(0xffe6e8e4),
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(15),
+                                topRight: Radius.circular(15),
+                                bottomLeft: Radius.circular(15),
+                                bottomRight: Radius.circular(5),
+                              ),
+                            ),
+                            child: child,
+                          ),
+                        ],
                       ),
                     )
                   : DefaultTextStyle.merge(
-                      style: const TextStyle(fontSize: 14, height: 1.45),
-                      child: child,
+                      style: const TextStyle(fontSize: 14, height: 1.5),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (label != null) _TimelineLabel(label!),
+                          child,
+                        ],
+                      ),
                     ),
             ),
           ],
@@ -1645,6 +1791,69 @@ class _ApprovalRow extends StatelessWidget {
   }
 }
 
+class _ComposerSelect extends StatelessWidget {
+  const _ComposerSelect({
+    required this.value,
+    required this.labels,
+    required this.onChanged,
+    this.leading,
+    this.placeholder,
+  });
+
+  final String? value;
+  final Map<String, String> labels;
+  final IconData? leading;
+  final String? placeholder;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minHeight: 28),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: _wash,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (leading != null) ...[
+            Icon(leading, size: 13, color: const Color(0xff666761)),
+            const SizedBox(width: 5),
+          ],
+          DropdownButton<String>(
+            value: value,
+            hint: placeholder == null
+                ? null
+                : Text(
+                    placeholder!,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xff666761),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+            isDense: true,
+            underline: const SizedBox.shrink(),
+            icon: const Icon(Icons.keyboard_arrow_down, size: 14),
+            style: const TextStyle(
+              fontSize: 11,
+              color: Color(0xff666761),
+              fontWeight: FontWeight.w600,
+            ),
+            items: [
+              for (final entry in labels.entries)
+                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+            ],
+            onChanged: onChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.input,
@@ -1674,22 +1883,16 @@ class _Composer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final models = <String>[model ?? 'GPT-5.6'];
+    final selectedModel = model ?? models.first;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(13, 4, 13, 0),
+      padding: const EdgeInsets.fromLTRB(13, 0, 13, 10),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
-          border: Border.all(color: const Color(0xffe5e5e5)),
+          color: _panel,
+          border: Border.all(color: const Color(0xffd9dad4)),
           borderRadius: BorderRadius.circular(17),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x0e000000),
-              blurRadius: 10,
-              offset: Offset(0, 3),
-            ),
-          ],
         ),
-        padding: const EdgeInsets.fromLTRB(14, 7, 8, 6),
+        padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
         child: Column(
           children: [
             TextField(
@@ -1698,58 +1901,33 @@ class _Composer extends StatelessWidget {
               maxLines: 4,
               decoration: InputDecoration(
                 hintText: hintText,
+                hintStyle: const TextStyle(color: _muted, fontSize: 14),
                 border: InputBorder.none,
                 isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 7),
+                contentPadding: const EdgeInsets.symmetric(vertical: 7),
               ),
               style: const TextStyle(fontSize: 14),
             ),
             Row(
               children: [
-                DropdownButton<String>(
+                _ComposerSelect(
                   value: mode,
-                  underline: const SizedBox.shrink(),
-                  icon: const Icon(Icons.keyboard_arrow_down, size: 15),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xff4f4f4f),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'default', child: Text('Default')),
-                    DropdownMenuItem(value: 'plan', child: Text('Plan')),
-                  ],
+                  leading: Icons.route_outlined,
+                  labels: const {'default': 'Default', 'plan': 'Plan'},
                   onChanged: onModeChanged,
                 ),
                 const SizedBox(width: 8),
-                DropdownButton<String>(
-                  value: model,
-                  underline: const SizedBox.shrink(),
-                  icon: const Icon(Icons.keyboard_arrow_down, size: 15),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xff4f4f4f),
-                  ),
-                  items: [
-                    for (final value in models)
-                      DropdownMenuItem(value: value, child: Text(value)),
-                  ],
+                _ComposerSelect(
+                  value: selectedModel,
+                  labels: {for (final value in models) value: value},
                   onChanged: onModelChanged,
                 ),
                 if (efforts.isNotEmpty) ...[
                   const SizedBox(width: 4),
-                  DropdownButton<String>(
+                  _ComposerSelect(
                     value: effort,
-                    hint: const Text('Effort'),
-                    underline: const SizedBox.shrink(),
-                    icon: const Icon(Icons.keyboard_arrow_down, size: 15),
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xff4f4f4f),
-                    ),
-                    items: [
-                      for (final value in efforts)
-                        DropdownMenuItem(value: value, child: Text(value)),
-                    ],
+                    labels: {for (final value in efforts) value: value},
+                    placeholder: 'Effort',
                     onChanged: onEffortChanged,
                   ),
                 ],
@@ -1770,10 +1948,11 @@ class _Composer extends StatelessWidget {
                   onPressed: busy ? null : onSend,
                   icon: const Icon(Icons.arrow_upward_rounded, size: 18),
                   style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xff111111),
+                    backgroundColor: _ink,
                     foregroundColor: Colors.white,
-                    fixedSize: const Size(32, 32),
+                    fixedSize: const Size(34, 34),
                     padding: EdgeInsets.zero,
+                    shape: const CircleBorder(),
                   ),
                 ),
               ],
