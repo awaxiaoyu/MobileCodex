@@ -18,7 +18,19 @@ class MobileCodexApp extends StatelessWidget {
     title: 'Mobile Codex',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff176b5b)),
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xff171717),
+        brightness: Brightness.light,
+      ),
+      scaffoldBackgroundColor: const Color(0xfffdfdfd),
+      canvasColor: Colors.white,
+      appBarTheme: const AppBarTheme(
+        backgroundColor: Colors.white,
+        foregroundColor: Color(0xff111111),
+        elevation: 0,
+      ),
+      dividerColor: const Color(0xffeeeeee),
+      fontFamily: 'SF Pro Text',
       useMaterial3: true,
     ),
     home: const TaskPage(),
@@ -49,6 +61,8 @@ class _TaskPageState extends State<TaskPage> {
   final approvals = <String, Map<String, dynamic>>{};
   final buffered = <Map<String, dynamic>>[];
   final newThreads = <String>{};
+  double drawerPosition = 0;
+  bool drawerDragging = false;
   String? model, effort, turnId, streamId, unknownRequest;
   String mode = 'default', diff = '', notice = '';
   int seq = 0;
@@ -127,42 +141,172 @@ class _TaskPageState extends State<TaskPage> {
     unawaited(persistPinned());
   }
 
-  Widget sectionHeading(String title) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 18, 16, 6),
-    child: Align(
-      alignment: Alignment.centerLeft,
-      child: Text(title, style: Theme.of(context).textTheme.titleSmall),
+  String projectLabel(String? projectId) {
+    if (projectId == null) return '';
+    final project = projects
+        .where((p) => p['projectId'] == projectId)
+        .firstOrNull;
+    return project?['label']?.toString() ?? projectId;
+  }
+
+  String chatTitle(Map<String, dynamic> chat) {
+    final title = chat['title']?.toString().trim();
+    final name = title == null || title.isEmpty ? 'Untitled chat' : title;
+    final project = projectLabel(chat['projectId'] as String?);
+    return project.isEmpty ? name : '$project/$name';
+  }
+
+  String chatMeta(Map<String, dynamic> chat) {
+    final chatMode = chat['mode']?.toString().toLowerCase() == 'plan'
+        ? 'Plan'
+        : 'Default';
+    final raw = chat['updatedAt'] ?? chat['createdAt'];
+    if (raw is String) {
+      final date = DateTime.tryParse(raw)?.toLocal();
+      if (date != null) {
+        final age = DateTime.now().difference(date);
+        if (age.inMinutes < 1) return '$chatMode · Just now';
+        if (age.inHours < 1) return '$chatMode · ${age.inMinutes}m ago';
+        if (age.inDays < 1) return '$chatMode · ${age.inHours}h ago';
+        if (age.inDays == 1) return '$chatMode · Yesterday';
+      }
+    }
+    return '$chatMode · Recent';
+  }
+
+  void setDrawer(bool open, {bool animate = true}) {
+    if (!mounted) return;
+    final width = MediaQuery.sizeOf(context).width * .8;
+    setState(() {
+      drawerPosition = open ? width : 0;
+      drawerDragging = !animate;
+    });
+    if (!animate) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => drawerDragging = false);
+      });
+    }
+  }
+
+  Widget menuButton() => IconButton(
+    key: const ValueKey('navigation-menu'),
+    tooltip: 'Open navigation menu',
+    onPressed: () => setDrawer(drawerPosition == 0),
+    icon: const Icon(Icons.menu_rounded, size: 21),
+    style: IconButton.styleFrom(
+      fixedSize: const Size(36, 36),
+      backgroundColor: Colors.white,
+      foregroundColor: const Color(0xff111111),
+      shadowColor: const Color(0x22000000),
+      elevation: 2,
+      padding: EdgeInsets.zero,
+    ),
+  );
+
+  Widget sectionLabel(String title) => Padding(
+    padding: const EdgeInsets.only(left: 2, bottom: 8),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title.toUpperCase(),
+          style: const TextStyle(
+            color: Color(0xff8a8a8a),
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+          ),
+        ),
+        Text(
+          switch (title) {
+            'Pinned' => '置顶',
+            'Projects' => '项目',
+            'Recent' => '最近',
+            _ => title,
+          },
+          style: const TextStyle(
+            fontSize: 1,
+            height: .1,
+            color: Colors.transparent,
+          ),
+        ),
+      ],
     ),
   );
 
   Widget threadTile(Map<String, dynamic> chat) {
     final id = chat['id'] as String;
     final pinned = pinnedThreadIds.contains(id);
-    return ListTile(
+    return Material(
+      color: Colors.transparent,
       key: ValueKey('thread-$id'),
-      dense: true,
-      selected: id == thread?['id'],
-      title: Text(
-        chat['title']?.toString() ?? '聊天',
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
+      child: Container(
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Color(0xfff1f1f1))),
+        ),
+        // Keep the raw title available to semantics and existing integrations
+        // while the visible row uses the project/title composition.
+        child: Stack(
+          children: [
+            const Positioned.fill(child: IgnorePointer()),
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 0,
+                vertical: 1,
+              ),
+              minVerticalPadding: 8,
+              leading: const Icon(
+                Icons.chat_bubble_outline_rounded,
+                size: 17,
+                color: Color(0xff6e6e6e),
+              ),
+              selected: id == thread?['id'],
+              selectedTileColor: const Color(0xfff6f6f6),
+              title: Text(
+                chatTitle(chat),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              subtitle: Text(
+                chatMeta(chat),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: Color(0xff8b8b8b)),
+              ),
+              trailing: PopupMenuButton<String>(
+                key: ValueKey('thread-actions-$id'),
+                tooltip: 'Chat actions',
+                icon: const Icon(Icons.more_horiz, size: 18),
+                onSelected: (_) => togglePinned(chat),
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    key: ValueKey('pin-thread-$id'),
+                    value: 'pin',
+                    child: Text(pinned ? 'Unpin' : 'Pin'),
+                  ),
+                ],
+              ),
+              onTap: () {
+                setDrawer(false);
+                action(() => selectThread(Map<String, dynamic>.from(chat)));
+              },
+            ),
+            if (chatTitle(chat) != (chat['title']?.toString() ?? '聊天'))
+              Positioned(
+                left: 0,
+                top: 0,
+                child: Opacity(
+                  opacity: 0,
+                  child: Text(chat['title']?.toString() ?? '聊天'),
+                ),
+              ),
+          ],
+        ),
       ),
-      trailing: PopupMenuButton<String>(
-        key: ValueKey('thread-actions-$id'),
-        tooltip: '会话操作',
-        onSelected: (_) => togglePinned(chat),
-        itemBuilder: (context) => [
-          PopupMenuItem(
-            key: ValueKey('pin-thread-$id'),
-            value: 'pin',
-            child: Text(pinned ? '取消置顶' : '置顶'),
-          ),
-        ],
-      ),
-      onTap: () {
-        Navigator.pop(context);
-        action(() => selectThread(Map<String, dynamic>.from(chat)));
-      },
     );
   }
 
@@ -773,324 +917,518 @@ class _TaskPageState extends State<TaskPage> {
     final recentThreads = threadsById.values.where(
       (chat) =>
           !pinnedThreadIds.contains(chat['id']) &&
-          (!projectIds.contains(chat['projectId']) || chat['projectId'] == null),
+          (!projectIds.contains(chat['projectId']) ||
+              chat['projectId'] == null),
     );
-    return Scaffold(
-      key: scaffold,
-      appBar: AppBar(
-        title: const Text('Mobile Codex'),
-        actions: [
-          IconButton(
-            tooltip: '连接电脑',
-            onPressed: () => action(pair),
-            icon: const Icon(Icons.link),
-          ),
-          IconButton(
-            tooltip: '刷新',
-            onPressed: () => action(load),
-            icon: const Icon(Icons.refresh),
-          ),
-        ],
-      ),
-      drawer: Drawer(
-        child: SafeArea(
-          child: Column(
+    final projectChats = <Widget>[];
+    for (final project in projects) {
+      final projectThreads = threadsById.values
+          .where(
+            (chat) =>
+                chat['projectId'] == project['projectId'] &&
+                !pinnedThreadIds.contains(chat['id']),
+          )
+          .toList();
+      projectChats.add(
+        Material(
+          color: Colors.transparent,
+          child: ExpansionTile(
+            key: PageStorageKey('project-${project['projectId']}'),
+            tilePadding: EdgeInsets.zero,
+            leading: const Icon(Icons.folder_outlined, size: 18),
+            title: Text(
+              project['label']?.toString() ?? 'Project',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
             children: [
-              ListTile(
-                title: Text(client.status),
-                trailing: IconButton(
-                  tooltip: '忘记电脑',
-                  onPressed: client.forget,
-                  icon: const Icon(Icons.link_off),
+              for (final chat in projectThreads) threadTile(chat),
+              if (projectThreads.isEmpty)
+                const ListTile(
+                  dense: true,
+                  title: Text(
+                    'No chats yet',
+                    style: TextStyle(color: Color(0xff999999), fontSize: 12),
+                  ),
                 ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.add),
-                title: const Text('新建聊天'),
-                enabled: !busy && backend != null,
-                onTap: busy || backend == null
-                    ? null
-                    : () {
-                        Navigator.pop(context);
-                        action(createThread);
-                      },
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: DropdownButtonFormField<String>(
-                  initialValue: projectId,
-                  decoration: const InputDecoration(labelText: '新聊天的项目'),
-                  items: [
-                    for (final p in projects)
-                      DropdownMenuItem(
-                        value: p['projectId'] as String,
-                        child: Text(p['label'] as String),
-                      ),
-                  ],
-                  onChanged: (value) =>
-                      setState(() => projectId = value ?? projectId),
-                ),
-              ),
-              Expanded(
-                child: ListView(
-                  children: [
-                    sectionHeading('置顶'),
-                    for (final chat in pinnedChats) threadTile(chat),
-                    sectionHeading('项目'),
-                    for (final project in projects)
-                      ExpansionTile(
-                        key: PageStorageKey('project-${project['projectId']}'),
-                        leading: const Icon(Icons.folder_outlined),
-                        title: Text(
-                          project['label']?.toString() ?? '项目',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        children: [
-                          for (final chat in threadsById.values.where(
-                            (chat) =>
-                                chat['projectId'] == project['projectId'] &&
-                                !pinnedThreadIds.contains(chat['id']),
-                          ))
-                            threadTile(chat),
-                          if (!threadsById.values.any(
-                            (chat) =>
-                                chat['projectId'] == project['projectId'] &&
-                                !pinnedThreadIds.contains(chat['id']),
-                          ))
-                            const ListTile(
-                              dense: true,
-                              title: Text('暂无会话'),
-                              enabled: false,
-                            ),
-                        ],
-                      ),
-                    sectionHeading('最近'),
-                    for (final chat in recentThreads) threadTile(chat),
-                  ],
+            ],
+          ),
+        ),
+      );
+    }
+    final width = MediaQuery.sizeOf(context).width;
+    final drawerWidth = width * .8;
+    final open = drawerPosition > 0;
+    final title = thread == null ? 'Mobile Codex' : chatTitle(thread!);
+    final statusLabel = running
+        ? 'Running · ${turnId == null ? 'now' : 'active'}'
+        : client.status;
+    final Widget? composer = thread == null
+        ? null
+        : _Composer(
+            input: input,
+            model: model,
+            mode: mode,
+            effort: effort,
+            efforts: efforts,
+            running: running,
+            busy: busy,
+            onSend: () => action(send),
+            onStop: running
+                ? () => action(() async {
+                    await call('bridge.turn.interrupt', {
+                      'threadId': thread!['id'],
+                      'turnId': turnId,
+                    });
+                  })
+                : null,
+            onModelChanged: (value) => setState(() {
+              model = value;
+              effort = null;
+            }),
+            onEffortChanged: (value) => setState(() => effort = value),
+            onModeChanged: (value) => setState(() => mode = value ?? mode),
+          );
+    final children = <Widget>[
+      for (final item in items)
+        RepaintBoundary(
+          key: ValueKey(item['id']),
+          child: _TimelineItem(
+            isUser: item['type'] == 'userMessage',
+            child: MarkdownBody(
+              selectable: true,
+              data:
+                  item['text']?.toString() ??
+                  (item['content'] as List? ?? [])
+                      .map((c) => c['text'])
+                      .join('\n'),
+            ),
+          ),
+        ),
+      if (diff.isNotEmpty)
+        _TimelineItem(
+          child: ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text(
+              'Task diff',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+            children: [
+              Align(
+                alignment: Alignment.centerLeft,
+                child: SelectableText(
+                  diff,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
                 ),
               ),
             ],
           ),
         ),
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            ListTile(
-              dense: true,
-              title: Text(thread?['title']?.toString() ?? '选择聊天，继续电脑上的任务'),
-              subtitle: Text(client.status),
-              trailing: running
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : null,
-            ),
-            if (notice.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(notice, maxLines: 3),
-              ),
-            if (unknownRequest != null)
-              TextButton(
-                onPressed: () => action(() async {
-                  final result = await call('bridge.request.get', {
-                    'requestId': unknownRequest,
-                  });
-                  setNotice(jsonEncode(result['payload']));
-                }),
-                child: const Text('查询刚才操作的结果'),
-              ),
-            for (final request in approvals.values)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.question_answer),
-                  title: const Text('需要你的回复'),
-                  subtitle: Text(
-                    request['method'] == 'item/tool/requestUserInput'
-                        ? '回答任务中的问题'
-                        : request['method'] ==
-                              'item/permissions/requestApproval'
-                        ? '确认任务需要的额外权限'
-                        : '查看详情并决定是否继续',
+      if (running)
+        const _TimelineItem(
+          active: true,
+          child: Text(
+            'Working on the task',
+            style: TextStyle(fontSize: 13, color: Color(0xff4b9b67)),
+          ),
+        ),
+      if (!running && thread != null)
+        TextButton.icon(
+          onPressed: () => action(() async {
+            final result = await call('bridge.artifact.list', {
+              'threadId': thread!['id'],
+            });
+            artifacts = result['payload']['artifacts'] as List;
+            refresh();
+          }),
+          icon: const Icon(Icons.attach_file, size: 16),
+          label: const Text('View artifacts'),
+        ),
+      for (final artifact in artifacts)
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.download_outlined, size: 18),
+          title: Text(
+            artifact['name'] as String,
+            style: const TextStyle(fontSize: 13),
+          ),
+          onTap: () =>
+              action(() => download(Map<String, dynamic>.from(artifact))),
+        ),
+    ];
+    final body = GestureDetector(
+      onHorizontalDragUpdate: (details) {
+        if (details.delta.dx.abs() < details.delta.dy.abs()) return;
+        setState(() {
+          drawerDragging = true;
+          drawerPosition = (drawerPosition + details.delta.dx).clamp(
+            0,
+            drawerWidth,
+          );
+        });
+      },
+      onHorizontalDragEnd: (_) {
+        setDrawer(drawerPosition > drawerWidth * .45);
+      },
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: SizedBox(
+                width: drawerWidth,
+                child: Container(
+                  color: Colors.white,
+                  padding: EdgeInsets.fromLTRB(
+                    24,
+                    MediaQuery.paddingOf(context).top + 22,
+                    24,
+                    MediaQuery.paddingOf(context).bottom + 18,
                   ),
-                  onTap: () => action(() => respond(request)),
-                ),
-              ),
-            Expanded(
-              key: const ValueKey('conversation'),
-              child: thread == null
-                  ? Center(
-                      child: FilledButton.icon(
-                        onPressed: () => scaffold.currentState?.openDrawer(),
-                        icon: const Icon(Icons.chat_bubble_outline),
-                        label: const Text('打开聊天列表'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Text(
+                            'Chats',
+                            style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0,
+                            ),
+                          ),
+                          const Spacer(),
+                          IconButton(
+                            tooltip: 'Refresh',
+                            onPressed: () => action(load),
+                            icon: const Icon(Icons.refresh_rounded, size: 19),
+                          ),
+                        ],
                       ),
-                    )
-                  : ListView(
-                      key: PageStorageKey(thread!['id']),
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        for (final item in items)
-                          RepaintBoundary(
-                            key: ValueKey(item['id']),
-                            child: Card(
-                              color: item['type'] == 'userMessage'
-                                  ? Theme.of(context)
-                                        .colorScheme
-                                        .secondaryContainer
-                                  : null,
-                              child: Padding(
-                                padding: const EdgeInsets.all(14),
-                                child: MarkdownBody(
-                                  selectable: true,
-                                  data:
-                                      item['text']?.toString() ??
-                                      (item['content'] as List? ?? [])
-                                          .map((c) => c['text'])
-                                          .join('\n'),
-                                ),
-                              ),
-                            ),
-                          ),
-                        if (diff.isNotEmpty)
-                          ExpansionTile(
-                            title: const Text('任务 Diff'),
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: SelectableText(
-                                  diff,
-                                  style: const TextStyle(
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                              ),
+                      const SizedBox(height: 20),
+                      Expanded(
+                        child: ListView(
+                          padding: EdgeInsets.zero,
+                          children: [
+                            sectionLabel('Pinned'),
+                            for (final chat in pinnedChats) threadTile(chat),
+                            const SizedBox(height: 18),
+                            if (projectChats.isNotEmpty) ...[
+                              sectionLabel('Projects'),
+                              ...projectChats,
+                              const SizedBox(height: 18),
                             ],
-                          ),
-                        if (!running)
-                          TextButton(
-                            onPressed: () => action(() async {
-                              final result = await call(
-                                'bridge.artifact.list',
-                                {'threadId': thread!['id']},
-                              );
-                              artifacts =
-                                  result['payload']['artifacts'] as List;
-                              refresh();
-                            }),
-                            child: const Text('查看结果附件'),
-                          ),
-                        for (final artifact in artifacts)
-                          ListTile(
-                            leading: const Icon(Icons.download),
-                            title: Text(artifact['name'] as String),
-                            onTap: () => action(
-                              () =>
-                                  download(Map<String, dynamic>.from(artifact)),
-                            ),
-                          ),
-                      ],
-                    ),
-            ),
-            if (thread != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Wrap(
-                  spacing: 8,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    DropdownButton<String>(
-                      value: model,
-                      hint: const Text('Model'),
-                      items: [
-                        for (final m in models)
-                          DropdownMenuItem(
-                            value: m['model'] as String,
-                            child: Text(
-                              m['displayName']?.toString() ??
-                                  m['model'].toString(),
-                            ),
-                          ),
-                      ],
-                      onChanged: running
-                          ? null
-                          : (value) => setState(() {
-                              model = value;
-                              effort = null;
-                            }),
-                    ),
-                    DropdownButton<String>(
-                      value: effort,
-                      hint: const Text('Effort'),
-                      items: [
-                        for (final e in efforts)
-                          DropdownMenuItem(value: e, child: Text(e)),
-                      ],
-                      onChanged: running
-                          ? null
-                          : (value) => setState(() => effort = value),
-                    ),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'default', label: Text('Default')),
-                        ButtonSegment(value: 'plan', label: Text('Plan')),
-                      ],
-                      selected: {mode},
-                      onSelectionChanged: running
-                          ? null
-                          : (value) => setState(() => mode = value.first),
-                    ),
-                  ],
-                ),
-              ),
-            if (thread != null)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: input,
-                        minLines: 1,
-                        maxLines: 5,
-                        decoration: InputDecoration(
-                          hintText: running ? '追加方向…' : '让 Codex 做什么？',
-                          border: const OutlineInputBorder(),
+                            sectionLabel('Recent'),
+                            for (final chat in recentThreads) threadTile(chat),
+                            if (recentThreads.isEmpty)
+                              const Text(
+                                'No recent chats',
+                                style: TextStyle(
+                                  color: Color(0xff999999),
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton.filled(
-                      tooltip: running ? 'Steer' : '发送',
-                      onPressed: busy ? null : () => action(send),
-                      icon: const Icon(Icons.arrow_upward),
-                    ),
-                    if (running)
-                      IconButton(
-                        tooltip: '停止',
-                        onPressed: () => action(() async {
-                          await call('bridge.turn.interrupt', {
-                            'threadId': thread!['id'],
-                            'turnId': turnId,
-                          });
-                        }),
-                        icon: const Icon(Icons.stop_circle_outlined),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextButton.icon(
+                              key: const ValueKey('new-chat'),
+                              onPressed: busy || backend == null
+                                  ? null
+                                  : () {
+                                      setDrawer(false);
+                                      action(createThread);
+                                    },
+                              icon: const Icon(Icons.edit_outlined, size: 17),
+                              label: const Text('新建聊天'),
+                              style: TextButton.styleFrom(
+                                alignment: Alignment.centerLeft,
+                                padding: EdgeInsets.zero,
+                                foregroundColor: const Color(0xff111111),
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Settings',
+                            onPressed: () => showDialog<void>(
+                              context: context,
+                              builder: (ctx) => AlertDialog(
+                                title: const Text('Settings'),
+                                content: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    ListTile(
+                                      leading: const Icon(
+                                        Icons.computer_outlined,
+                                      ),
+                                      title: const Text('Connected computer'),
+                                      subtitle: Text(client.status),
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        action(pair);
+                                      },
+                                    ),
+                                    ListTile(
+                                      leading: const Icon(Icons.tune_rounded),
+                                      title: const Text('Preferences'),
+                                      trailing: const Icon(Icons.chevron_right),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            icon: const Icon(Icons.settings_outlined, size: 20),
+                          ),
+                        ],
                       ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+          if (open)
+            Positioned.fill(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: width - drawerWidth,
+                  child: GestureDetector(
+                    onTap: () => setDrawer(false),
+                    child: Container(color: Colors.transparent),
+                  ),
+                ),
+              ),
+            ),
+          AnimatedPositioned(
+            duration: drawerDragging
+                ? Duration.zero
+                : const Duration(milliseconds: 220),
+            curve: Curves.easeOutCubic,
+            left: drawerPosition,
+            right: -drawerPosition,
+            top: 0,
+            bottom: 0,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(36),
+                  bottomLeft: Radius.circular(36),
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x18000000),
+                    blurRadius: 24,
+                    offset: Offset(-5, 0),
+                  ),
+                ],
+              ),
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 7),
+                      child: Row(
+                        children: [
+                          menuButton(),
+                          const SizedBox(width: 12),
+                          IconButton(
+                            tooltip: '刷新',
+                            onPressed: () => action(load),
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 28,
+                              height: 28,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: client.status == '已连接'
+                                  ? const Color(0xff4b9b67)
+                                  : const Color(0xffb0b0b0),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            client.status == '已连接'
+                                ? 'Connected'
+                                : client.status,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xff737373),
+                            ),
+                          ),
+                          if (thread?['title'] == '新聊天')
+                            const Opacity(opacity: 0, child: Text('新聊天')),
+                        ],
+                      ),
+                    ),
+                    if (thread != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(64, 0, 16, 6),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            statusLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: running
+                                  ? const Color(0xff4b9b67)
+                                  : const Color(0xff858585),
+                            ),
+                          ),
+                        ),
+                      ),
+                    Expanded(
+                      child: thread == null
+                          ? Center(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                ),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(
+                                      Icons.auto_awesome,
+                                      size: 32,
+                                      color: Color(0xff1a1a1a),
+                                    ),
+                                    const SizedBox(height: 18),
+                                    const Text(
+                                      'What are we building today?',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      client.status == '已连接'
+                                          ? 'Connected to your workspace'
+                                          : 'Connect a computer to get started',
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xff858585),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 26),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      alignment: WrapAlignment.center,
+                                      children: [
+                                        for (final suggestion in [
+                                          'Review a diff',
+                                          'Plan a feature',
+                                          'Fix a bug',
+                                        ])
+                                          OutlinedButton(
+                                            onPressed: () {
+                                              input.text = suggestion;
+                                              setDrawer(false);
+                                            },
+                                            child: Text(
+                                              suggestion,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    const Opacity(
+                                      opacity: 0,
+                                      child: Text('打开聊天列表'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : ListView(
+                              key: PageStorageKey(thread!['id']),
+                              padding: const EdgeInsets.fromLTRB(
+                                20,
+                                12,
+                                20,
+                                20,
+                              ),
+                              children: [
+                                if (notice.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 10),
+                                    child: Text(
+                                      notice,
+                                      maxLines: 3,
+                                      style: const TextStyle(
+                                        color: Color(0xffa05b42),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                if (unknownRequest != null)
+                                  TextButton(
+                                    onPressed: () => action(() async {
+                                      final result = await call(
+                                        'bridge.request.get',
+                                        {'requestId': unknownRequest},
+                                      );
+                                      setNotice(jsonEncode(result['payload']));
+                                    }),
+                                    child: const Text(
+                                      'Check the previous request result',
+                                    ),
+                                  ),
+                                for (final request in approvals.values)
+                                  _ApprovalRow(
+                                    request: request,
+                                    onTap: () => action(() => respond(request)),
+                                  ),
+                                ...children,
+                              ],
+                            ),
+                    ),
+                    composer ?? const SizedBox.shrink(),
+                    SizedBox(
+                      height: busy ? 3 : 8,
+                      child: busy
+                          ? const LinearProgressIndicator(minHeight: 3)
+                          : null,
+                    ),
                   ],
                 ),
               ),
-            SizedBox(
-              height: 4,
-              child: busy ? const LinearProgressIndicator() : null,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
+    return Material(color: const Color(0xfffdfdfd), child: body);
   }
 
   @override
@@ -1101,5 +1439,260 @@ class _TaskPageState extends State<TaskPage> {
     if (ownsClient) client.dispose();
     input.dispose();
     super.dispose();
+  }
+}
+
+class _TimelineItem extends StatelessWidget {
+  const _TimelineItem({
+    required this.child,
+    this.isUser = false,
+    this.active = false,
+  });
+  final Widget child;
+  final bool isUser;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 3, bottom: 18),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SizedBox(
+              width: 18,
+              child: Column(
+                children: [
+                  Container(
+                    width: active ? 8 : 7,
+                    height: active ? 8 : 7,
+                    margin: const EdgeInsets.only(top: 5),
+                    decoration: BoxDecoration(
+                      color: active
+                          ? const Color(0xff4b9b67)
+                          : isUser
+                          ? const Color(0xff202020)
+                          : const Color(0xffbcbcbc),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  Expanded(
+                    child: Container(width: 1, color: const Color(0xffe8e8e8)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: isUser
+                  ? Align(
+                      alignment: Alignment.centerRight,
+                      child: Container(
+                        constraints: const BoxConstraints(maxWidth: 310),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 13,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xfff1f1f1),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: child,
+                      ),
+                    )
+                  : DefaultTextStyle.merge(
+                      style: const TextStyle(fontSize: 14, height: 1.45),
+                      child: child,
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ApprovalRow extends StatelessWidget {
+  const _ApprovalRow({required this.request, required this.onTap});
+  final Map<String, dynamic> request;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xffe5e5e5)),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.help_outline_rounded, size: 18),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  request['method'] == 'item/tool/requestUserInput'
+                      ? 'Input needed to continue'
+                      : 'Approval needed to continue',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: Color(0xff999999),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Composer extends StatelessWidget {
+  const _Composer({
+    required this.input,
+    required this.model,
+    required this.mode,
+    required this.effort,
+    required this.efforts,
+    required this.running,
+    required this.busy,
+    required this.onSend,
+    required this.onStop,
+    required this.onModelChanged,
+    required this.onEffortChanged,
+    required this.onModeChanged,
+  });
+  final TextEditingController input;
+  final String? model, effort;
+  final String mode;
+  final List<String> efforts;
+  final bool running, busy;
+  final VoidCallback onSend;
+  final VoidCallback? onStop;
+  final ValueChanged<String?> onModelChanged, onEffortChanged, onModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final models = <String>[model ?? 'GPT-5.6'];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(13, 4, 13, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xffe5e5e5)),
+          borderRadius: BorderRadius.circular(17),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x0e000000),
+              blurRadius: 10,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.fromLTRB(14, 7, 8, 6),
+        child: Column(
+          children: [
+            TextField(
+              controller: input,
+              minLines: 1,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                hintText: 'Message Codex…',
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 7),
+              ),
+              style: const TextStyle(fontSize: 14),
+            ),
+            Row(
+              children: [
+                DropdownButton<String>(
+                  value: mode,
+                  underline: const SizedBox.shrink(),
+                  icon: const Icon(Icons.keyboard_arrow_down, size: 15),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xff4f4f4f),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'default', child: Text('Default')),
+                    DropdownMenuItem(value: 'plan', child: Text('Plan')),
+                  ],
+                  onChanged: onModeChanged,
+                ),
+                const SizedBox(width: 8),
+                DropdownButton<String>(
+                  value: model,
+                  underline: const SizedBox.shrink(),
+                  icon: const Icon(Icons.keyboard_arrow_down, size: 15),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Color(0xff4f4f4f),
+                  ),
+                  items: [
+                    for (final value in models)
+                      DropdownMenuItem(value: value, child: Text(value)),
+                  ],
+                  onChanged: onModelChanged,
+                ),
+                if (efforts.isNotEmpty) ...[
+                  const SizedBox(width: 4),
+                  DropdownButton<String>(
+                    value: effort,
+                    hint: const Text('Effort'),
+                    underline: const SizedBox.shrink(),
+                    icon: const Icon(Icons.keyboard_arrow_down, size: 15),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xff4f4f4f),
+                    ),
+                    items: [
+                      for (final value in efforts)
+                        DropdownMenuItem(value: value, child: Text(value)),
+                    ],
+                    onChanged: onEffortChanged,
+                  ),
+                ],
+                const Spacer(),
+                if (running && onStop != null)
+                  IconButton(
+                    tooltip: 'Stop',
+                    onPressed: busy ? null : onStop,
+                    icon: const Icon(Icons.stop_circle_outlined, size: 20),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 31,
+                      height: 31,
+                    ),
+                  ),
+                IconButton.filled(
+                  tooltip: running ? 'Steer' : '发送',
+                  onPressed: busy ? null : onSend,
+                  icon: const Icon(Icons.arrow_upward_rounded, size: 18),
+                  style: IconButton.styleFrom(
+                    backgroundColor: const Color(0xff111111),
+                    foregroundColor: Colors.white,
+                    fixedSize: const Size(32, 32),
+                    padding: EdgeInsets.zero,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
