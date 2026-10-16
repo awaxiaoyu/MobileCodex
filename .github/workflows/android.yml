@@ -77,7 +77,11 @@ jobs:
           sdkmanager="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
           for attempt in 1 2 3; do
             rm -rf "${ANDROID_HOME}/cmake/3.22.1" "${ANDROID_HOME}/.temp"
-            if yes | "${sdkmanager}" --install "cmake;3.22.1"; then
+            set +o pipefail
+            yes | "${sdkmanager}" --install "cmake;3.22.1"
+            status=${PIPESTATUS[1]}
+            set -o pipefail
+            if [ "${status}" -eq 0 ]; then
               exit 0
             fi
             sleep $((attempt * 5))
