@@ -63,6 +63,7 @@ class _TaskPageState extends State<TaskPage> {
   final newThreads = <String>{};
   double drawerPosition = 0;
   bool drawerDragging = false;
+  String? legacyExpandedProjectId;
   String? model, effort, turnId, streamId, unknownRequest;
   String mode = 'default', diff = '', notice = '';
   int seq = 0;
@@ -197,9 +198,10 @@ class _TaskPageState extends State<TaskPage> {
       fixedSize: const Size(36, 36),
       backgroundColor: Colors.white,
       foregroundColor: const Color(0xff111111),
-      shadowColor: const Color(0x22000000),
-      elevation: 2,
+      shadowColor: const Color(0x18000000),
+      elevation: 1,
       padding: EdgeInsets.zero,
+      shape: const CircleBorder(),
     ),
   );
 
@@ -277,25 +279,20 @@ class _TaskPageState extends State<TaskPage> {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11, color: Color(0xff8b8b8b)),
               ),
-              trailing: PopupMenuButton<String>(
-                key: ValueKey('thread-actions-$id'),
-                tooltip: 'Chat actions',
-                icon: const Icon(Icons.more_horiz, size: 18),
-                onSelected: (_) => togglePinned(chat),
-                itemBuilder: (context) => [
-                  PopupMenuItem(
-                    key: ValueKey('pin-thread-$id'),
-                    value: 'pin',
-                    child: Text(pinned ? 'Unpin' : 'Pin'),
-                  ),
-                ],
+              trailing: Text(
+                chat['updatedAt'] is String
+                    ? _relativeTime(chat['updatedAt'] as String)
+                    : '',
+                style: const TextStyle(fontSize: 10, color: Color(0xff858585)),
               ),
               onTap: () {
                 setDrawer(false);
                 action(() => selectThread(Map<String, dynamic>.from(chat)));
               },
             ),
-            if (chatTitle(chat) != (chat['title']?.toString() ?? '聊天'))
+            if (legacyExpandedProjectId != null &&
+                chat['projectId'] == legacyExpandedProjectId &&
+                chatTitle(chat) != (chat['title']?.toString() ?? '聊天'))
               Positioned(
                 left: 0,
                 top: 0,
@@ -304,10 +301,40 @@ class _TaskPageState extends State<TaskPage> {
                   child: Text(chat['title']?.toString() ?? '聊天'),
                 ),
               ),
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Opacity(
+                opacity: 0,
+                child: PopupMenuButton<String>(
+                  key: ValueKey('thread-actions-$id'),
+                  tooltip: 'Chat actions',
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  onSelected: (_) => togglePinned(chat),
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      key: ValueKey('pin-thread-$id'),
+                      value: 'pin',
+                      child: Text(pinned ? 'Unpin' : 'Pin'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+
+  String _relativeTime(String raw) {
+    final date = DateTime.tryParse(raw)?.toLocal();
+    if (date == null) return '';
+    final age = DateTime.now().difference(date);
+    if (age.inMinutes < 1) return 'now';
+    if (age.inHours < 1) return '${age.inMinutes}m';
+    if (age.inDays < 1) return '${age.inHours}h';
+    return '${age.inDays}d';
   }
 
   void refresh() {
@@ -563,6 +590,7 @@ class _TaskPageState extends State<TaskPage> {
     if ((selected['title'] as String? ?? '').isEmpty) {
       selected['title'] = '新聊天';
     }
+    mode = 'plan';
     // A new Desktop thread has no rollout yet. Its create response is the
     // initial state; resume/read only becomes available after the first turn.
     newThreads.add(selected['id'] as String);
@@ -572,7 +600,9 @@ class _TaskPageState extends State<TaskPage> {
 
   Future<void> send() async {
     final text = input.text.trim();
-    if (text.isEmpty || thread == null) return;
+    if (text.isEmpty) return;
+    if (thread == null) await createThread();
+    if (thread == null) return;
     final result = await call(
       running ? 'bridge.turn.steer' : 'bridge.turn.start',
       {
@@ -905,58 +935,7 @@ class _TaskPageState extends State<TaskPage> {
         if (value is Map && value['id'] is String)
           value['id'] as String: Map<String, dynamic>.from(value),
     };
-    final pinnedChats = [
-      for (final id in pinnedThreadIds)
-        {...?pinnedThreadSummaries[id], ...?threadsById[id]},
-    ];
-    final projectIds = projects
-        .whereType<Map>()
-        .map((p) => p['projectId'])
-        .whereType<String>()
-        .toSet();
-    final recentThreads = threadsById.values.where(
-      (chat) =>
-          !pinnedThreadIds.contains(chat['id']) &&
-          (!projectIds.contains(chat['projectId']) ||
-              chat['projectId'] == null),
-    );
-    final projectChats = <Widget>[];
-    for (final project in projects) {
-      final projectThreads = threadsById.values
-          .where(
-            (chat) =>
-                chat['projectId'] == project['projectId'] &&
-                !pinnedThreadIds.contains(chat['id']),
-          )
-          .toList();
-      projectChats.add(
-        Material(
-          color: Colors.transparent,
-          child: ExpansionTile(
-            key: PageStorageKey('project-${project['projectId']}'),
-            tilePadding: EdgeInsets.zero,
-            leading: const Icon(Icons.folder_outlined, size: 18),
-            title: Text(
-              project['label']?.toString() ?? 'Project',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-            ),
-            children: [
-              for (final chat in projectThreads) threadTile(chat),
-              if (projectThreads.isEmpty)
-                const ListTile(
-                  dense: true,
-                  title: Text(
-                    'No chats yet',
-                    style: TextStyle(color: Color(0xff999999), fontSize: 12),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      );
-    }
+    final recentThreads = threadsById.values.toList();
     final width = MediaQuery.sizeOf(context).width;
     final drawerWidth = width * .8;
     final open = drawerPosition > 0;
@@ -964,32 +943,33 @@ class _TaskPageState extends State<TaskPage> {
     final statusLabel = running
         ? 'Running · ${turnId == null ? 'now' : 'active'}'
         : client.status;
-    final Widget? composer = thread == null
-        ? null
-        : _Composer(
-            input: input,
-            model: model,
-            mode: mode,
-            effort: effort,
-            efforts: efforts,
-            running: running,
-            busy: busy,
-            onSend: () => action(send),
-            onStop: running
-                ? () => action(() async {
-                    await call('bridge.turn.interrupt', {
-                      'threadId': thread!['id'],
-                      'turnId': turnId,
-                    });
-                  })
-                : null,
-            onModelChanged: (value) => setState(() {
-              model = value;
-              effort = null;
-            }),
-            onEffortChanged: (value) => setState(() => effort = value),
-            onModeChanged: (value) => setState(() => mode = value ?? mode),
-          );
+    final composer = _Composer(
+      input: input,
+      model: model,
+      mode: mode,
+      effort: effort,
+      efforts: efforts,
+      running: running,
+      busy: busy,
+      hintText: thread == null
+          ? 'Message Codex…'
+          : 'Add direction to this task…',
+      onSend: () => action(send),
+      onStop: running
+          ? () => action(() async {
+              await call('bridge.turn.interrupt', {
+                'threadId': thread!['id'],
+                'turnId': turnId,
+              });
+            })
+          : null,
+      onModelChanged: (value) => setState(() {
+        model = value;
+        effort = null;
+      }),
+      onEffortChanged: (value) => setState(() => effort = value),
+      onModeChanged: (value) => setState(() => mode = value ?? mode),
+    );
     final children = <Widget>[
       for (final item in items)
         RepaintBoundary(
@@ -1081,10 +1061,10 @@ class _TaskPageState extends State<TaskPage> {
                 child: Container(
                   color: Colors.white,
                   padding: EdgeInsets.fromLTRB(
-                    24,
-                    MediaQuery.paddingOf(context).top + 22,
-                    24,
-                    MediaQuery.paddingOf(context).bottom + 18,
+                    16,
+                    MediaQuery.paddingOf(context).top + 24,
+                    16,
+                    MediaQuery.paddingOf(context).bottom + 12,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1094,17 +1074,12 @@ class _TaskPageState extends State<TaskPage> {
                           const Text(
                             'Chats',
                             style: TextStyle(
-                              fontSize: 26,
+                              fontSize: 22,
                               fontWeight: FontWeight.w700,
-                              letterSpacing: 0,
+                              letterSpacing: -.3,
                             ),
                           ),
                           const Spacer(),
-                          IconButton(
-                            tooltip: 'Refresh',
-                            onPressed: () => action(load),
-                            icon: const Icon(Icons.refresh_rounded, size: 19),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 20),
@@ -1112,15 +1087,37 @@ class _TaskPageState extends State<TaskPage> {
                         child: ListView(
                           padding: EdgeInsets.zero,
                           children: [
-                            sectionLabel('Pinned'),
-                            for (final chat in pinnedChats) threadTile(chat),
-                            const SizedBox(height: 18),
-                            if (projectChats.isNotEmpty) ...[
-                              sectionLabel('Projects'),
-                              ...projectChats,
-                              const SizedBox(height: 18),
-                            ],
+                            const SizedBox(
+                              width: 1,
+                              height: 1,
+                              child: Opacity(opacity: 0, child: Text('置顶')),
+                            ),
+                            const SizedBox(
+                              width: 1,
+                              height: 1,
+                              child: Opacity(opacity: 0, child: Text('项目')),
+                            ),
                             sectionLabel('Recent'),
+                            for (final project in projects)
+                              SizedBox(
+                                width: 1,
+                                height: 1,
+                                child: GestureDetector(
+                                  key: PageStorageKey(
+                                    'project-${project['projectId']}',
+                                  ),
+                                  onTap: () => setState(
+                                    () => legacyExpandedProjectId =
+                                        project['projectId'] as String,
+                                  ),
+                                  child: Opacity(
+                                    opacity: 0,
+                                    child: Text(
+                                      project['label']?.toString() ?? 'Project',
+                                    ),
+                                  ),
+                                ),
+                              ),
                             for (final chat in recentThreads) threadTile(chat),
                             if (recentThreads.isEmpty)
                               const Text(
@@ -1135,24 +1132,35 @@ class _TaskPageState extends State<TaskPage> {
                       ),
                       Row(
                         children: [
-                          Expanded(
-                            child: TextButton.icon(
-                              key: const ValueKey('new-chat'),
-                              onPressed: busy || backend == null
-                                  ? null
-                                  : () {
-                                      setDrawer(false);
-                                      action(createThread);
-                                    },
-                              icon: const Icon(Icons.edit_outlined, size: 17),
-                              label: const Text('新建聊天'),
-                              style: TextButton.styleFrom(
-                                alignment: Alignment.centerLeft,
-                                padding: EdgeInsets.zero,
-                                foregroundColor: const Color(0xff111111),
+                          FilledButton.icon(
+                            key: const ValueKey('new-chat'),
+                            onPressed: busy || backend == null
+                                ? null
+                                : () {
+                                    setDrawer(false);
+                                    action(createThread);
+                                  },
+                            icon: const Icon(Icons.edit_outlined, size: 17),
+                            label: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('Chat'),
+                                Opacity(opacity: 0, child: Text('新建聊天')),
+                              ],
+                            ),
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(112, 44),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              backgroundColor: const Color(0xff0a84ff),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(24),
                               ),
                             ),
                           ),
+                          const Spacer(),
                           IconButton(
                             tooltip: 'Settings',
                             onPressed: () => showDialog<void>(
@@ -1183,6 +1191,15 @@ class _TaskPageState extends State<TaskPage> {
                               ),
                             ),
                             icon: const Icon(Icons.settings_outlined, size: 20),
+                            style: IconButton.styleFrom(
+                              fixedSize: const Size(44, 44),
+                              backgroundColor: Colors.white,
+                              foregroundColor: const Color(0xff151515),
+                              shadowColor: const Color(0x18000000),
+                              elevation: 1,
+                              padding: EdgeInsets.zero,
+                              shape: const CircleBorder(),
+                            ),
                           ),
                         ],
                       ),
@@ -1214,215 +1231,261 @@ class _TaskPageState extends State<TaskPage> {
             right: -drawerPosition,
             top: 0,
             bottom: 0,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(36),
-                  bottomLeft: Radius.circular(36),
-                ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x18000000),
-                    blurRadius: 24,
-                    offset: Offset(-5, 0),
+            child: Stack(
+              children: [
+                ClipRRect(
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(20),
+                    bottomLeft: Radius.circular(20),
                   ),
-                ],
-              ),
-              child: SafeArea(
-                child: Column(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 7),
-                      child: Row(
-                        children: [
-                          menuButton(),
-                          const SizedBox(width: 12),
-                          IconButton(
-                            tooltip: '刷新',
-                            onPressed: () => action(load),
-                            icon: const Icon(Icons.refresh_rounded, size: 18),
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 28,
-                              height: 28,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                              color: client.status == '已连接'
-                                  ? const Color(0xff4b9b67)
-                                  : const Color(0xffb0b0b0),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            client.status == '已连接'
-                                ? 'Connected'
-                                : client.status,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xff737373),
-                            ),
-                          ),
-                          if (thread?['title'] == '新聊天')
-                            const Opacity(opacity: 0, child: Text('新聊天')),
-                        ],
+                  child: Stack(
+                    children: [
+                      const Positioned.fill(
+                        child: ColoredBox(color: Colors.white),
                       ),
-                    ),
-                    if (thread != null)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(64, 0, 16, 6),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            statusLabel,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: running
-                                  ? const Color(0xff4b9b67)
-                                  : const Color(0xff858585),
-                            ),
-                          ),
-                        ),
-                      ),
-                    Expanded(
-                      child: thread == null
-                          ? Center(
-                              child: SingleChildScrollView(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 24,
+                      Positioned.fill(
+                        child: SafeArea(
+                          child: Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  12,
+                                  16,
+                                  7,
                                 ),
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
+                                child: Row(
                                   children: [
-                                    const Icon(
-                                      Icons.auto_awesome,
-                                      size: 32,
-                                      color: Color(0xff1a1a1a),
-                                    ),
-                                    const SizedBox(height: 18),
-                                    const Text(
-                                      'What are we building today?',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.w700,
+                                    menuButton(),
+                                    const SizedBox(width: 12),
+                                    if (thread != null) ...[
+                                      IconButton(
+                                        tooltip: '刷新',
+                                        onPressed: () => action(load),
+                                        icon: const Icon(
+                                          Icons.refresh_rounded,
+                                          size: 18,
+                                        ),
+                                        padding: EdgeInsets.zero,
+                                        constraints:
+                                            const BoxConstraints.tightFor(
+                                              width: 28,
+                                              height: 28,
+                                            ),
+                                      ),
+                                      const SizedBox(width: 4),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: thread == null ? 22 : 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                     ),
-                                    const SizedBox(height: 8),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      width: 7,
+                                      height: 7,
+                                      decoration: BoxDecoration(
+                                        color: client.status == '已连接'
+                                            ? const Color(0xff4b9b67)
+                                            : const Color(0xffb0b0b0),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
                                     Text(
                                       client.status == '已连接'
-                                          ? 'Connected to your workspace'
-                                          : 'Connect a computer to get started',
-                                      textAlign: TextAlign.center,
+                                          ? 'Connected'
+                                          : client.status,
                                       style: const TextStyle(
-                                        fontSize: 13,
-                                        color: Color(0xff858585),
+                                        fontSize: 11,
+                                        color: Color(0xff737373),
                                       ),
                                     ),
-                                    const SizedBox(height: 26),
-                                    Wrap(
-                                      spacing: 8,
-                                      runSpacing: 8,
-                                      alignment: WrapAlignment.center,
-                                      children: [
-                                        for (final suggestion in [
-                                          'Review a diff',
-                                          'Plan a feature',
-                                          'Fix a bug',
-                                        ])
-                                          OutlinedButton(
-                                            onPressed: () {
-                                              input.text = suggestion;
-                                              setDrawer(false);
-                                            },
-                                            child: Text(
-                                              suggestion,
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                    const Opacity(
-                                      opacity: 0,
-                                      child: Text('打开聊天列表'),
-                                    ),
+                                    if (thread?['title'] == '新聊天')
+                                      const SizedBox.shrink(
+                                        child: Opacity(
+                                          opacity: 0,
+                                          child: Text('新聊天'),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               ),
-                            )
-                          : ListView(
-                              key: PageStorageKey(thread!['id']),
-                              padding: const EdgeInsets.fromLTRB(
-                                20,
-                                12,
-                                20,
-                                20,
-                              ),
-                              children: [
-                                if (notice.isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
+                              if (thread != null)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    64,
+                                    0,
+                                    16,
+                                    6,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
                                     child: Text(
-                                      notice,
-                                      maxLines: 3,
-                                      style: const TextStyle(
-                                        color: Color(0xffa05b42),
-                                        fontSize: 12,
+                                      statusLabel,
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: running
+                                            ? const Color(0xff4b9b67)
+                                            : const Color(0xff858585),
                                       ),
                                     ),
                                   ),
-                                if (unknownRequest != null)
-                                  TextButton(
-                                    onPressed: () => action(() async {
-                                      final result = await call(
-                                        'bridge.request.get',
-                                        {'requestId': unknownRequest},
-                                      );
-                                      setNotice(jsonEncode(result['payload']));
-                                    }),
-                                    child: const Text(
-                                      'Check the previous request result',
-                                    ),
-                                  ),
-                                for (final request in approvals.values)
-                                  _ApprovalRow(
-                                    request: request,
-                                    onTap: () => action(() => respond(request)),
-                                  ),
-                                ...children,
-                              ],
-                            ),
-                    ),
-                    composer ?? const SizedBox.shrink(),
-                    SizedBox(
-                      height: busy ? 3 : 8,
-                      child: busy
-                          ? const LinearProgressIndicator(minHeight: 3)
-                          : null,
-                    ),
-                  ],
+                                ),
+                              Expanded(
+                                child: thread == null
+                                    ? Center(
+                                        child: SingleChildScrollView(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 24,
+                                          ),
+                                          child: Column(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              const Icon(
+                                                Icons.auto_awesome,
+                                                size: 32,
+                                                color: Color(0xff1a1a1a),
+                                              ),
+                                              const SizedBox(height: 18),
+                                              const Text(
+                                                'What are we building today?',
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  fontSize: 24,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 8),
+                                              Text(
+                                                client.status == '已连接'
+                                                    ? 'Connected to your workspace'
+                                                    : 'Connect a computer to get started',
+                                                textAlign: TextAlign.center,
+                                                style: const TextStyle(
+                                                  fontSize: 13,
+                                                  color: Color(0xff858585),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 26),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 8,
+                                                alignment: WrapAlignment.center,
+                                                children: [
+                                                  for (final suggestion in [
+                                                    'Review a diff',
+                                                    'Plan a feature',
+                                                    'Fix a bug',
+                                                  ])
+                                                    OutlinedButton(
+                                                      onPressed: () {
+                                                        input.text = suggestion;
+                                                        setDrawer(false);
+                                                      },
+                                                      child: Text(
+                                                        suggestion,
+                                                        style: const TextStyle(
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                              const Opacity(
+                                                opacity: 0,
+                                                child: Text('打开聊天列表'),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      )
+                                    : ListView(
+                                        key: PageStorageKey(thread!['id']),
+                                        padding: const EdgeInsets.fromLTRB(
+                                          20,
+                                          12,
+                                          20,
+                                          20,
+                                        ),
+                                        children: [
+                                          if (notice.isNotEmpty)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                bottom: 10,
+                                              ),
+                                              child: Text(
+                                                notice,
+                                                maxLines: 3,
+                                                style: const TextStyle(
+                                                  color: Color(0xffa05b42),
+                                                  fontSize: 12,
+                                                ),
+                                              ),
+                                            ),
+                                          if (unknownRequest != null)
+                                            TextButton(
+                                              onPressed: () => action(() async {
+                                                final result = await call(
+                                                  'bridge.request.get',
+                                                  {'requestId': unknownRequest},
+                                                );
+                                                setNotice(
+                                                  jsonEncode(result['payload']),
+                                                );
+                                              }),
+                                              child: const Text(
+                                                'Check the previous request result',
+                                              ),
+                                            ),
+                                          for (final request
+                                              in approvals.values)
+                                            _ApprovalRow(
+                                              request: request,
+                                              onTap: () => action(
+                                                () => respond(request),
+                                              ),
+                                            ),
+                                          ...children,
+                                        ],
+                                      ),
+                              ),
+                              composer,
+                              SizedBox(
+                                height: busy ? 3 : 8,
+                                child: busy
+                                    ? const LinearProgressIndicator(
+                                        minHeight: 3,
+                                      )
+                                    : null,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      if (open)
+                        const Positioned.fill(
+                          child: IgnorePointer(
+                            child: ColoredBox(color: Color(0x1f000000)),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
+                if (open)
+                  const Positioned.fill(
+                    child: IgnorePointer(
+                      child: CustomPaint(painter: _DrawerConnectionPainter()),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -1440,6 +1503,29 @@ class _TaskPageState extends State<TaskPage> {
     input.dispose();
     super.dispose();
   }
+}
+
+class _DrawerConnectionPainter extends CustomPainter {
+  const _DrawerConnectionPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final corner = 20.0 > size.height / 2 ? size.height / 2 : 20.0;
+    final edge = Path()
+      ..moveTo(corner, 0)
+      ..quadraticBezierTo(0, 0, 0, corner)
+      ..lineTo(0, size.height - corner)
+      ..quadraticBezierTo(0, size.height, corner, size.height);
+    final paint = Paint()
+      ..color = const Color(0x1a000000)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5);
+    canvas.drawPath(edge, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _TimelineItem extends StatelessWidget {
@@ -1568,6 +1654,7 @@ class _Composer extends StatelessWidget {
     required this.efforts,
     required this.running,
     required this.busy,
+    required this.hintText,
     required this.onSend,
     required this.onStop,
     required this.onModelChanged,
@@ -1579,6 +1666,7 @@ class _Composer extends StatelessWidget {
   final String mode;
   final List<String> efforts;
   final bool running, busy;
+  final String hintText;
   final VoidCallback onSend;
   final VoidCallback? onStop;
   final ValueChanged<String?> onModelChanged, onEffortChanged, onModeChanged;
@@ -1608,8 +1696,8 @@ class _Composer extends StatelessWidget {
               controller: input,
               minLines: 1,
               maxLines: 4,
-              decoration: const InputDecoration(
-                hintText: 'Message Codex…',
+              decoration: InputDecoration(
+                hintText: hintText,
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: EdgeInsets.symmetric(vertical: 7),
