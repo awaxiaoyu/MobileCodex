@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
@@ -14,7 +15,11 @@ const _muted = Color(0xff8a8a86);
 const _line = Color(0xffe8e7e2);
 const _surface = Color(0xfff7f7f4);
 const _panel = Color(0xffffffff);
-const _wash = Color(0xffefefeb);
+const _glassPanel = Color(0xdfffffff);
+const _glassSoft = Color(0xb8ffffff);
+const _glassWash = Color(0xb8efefeb);
+const _glassBorder = Color(0x9ed7d8d2);
+const _glassShadow = Color(0x1f191916);
 
 void main() => runApp(const MobileCodexApp());
 
@@ -32,16 +37,335 @@ class MobileCodexApp extends StatelessWidget {
       scaffoldBackgroundColor: _surface,
       canvasColor: _panel,
       appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.white,
+        backgroundColor: _glassPanel,
         foregroundColor: _ink,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
       ),
       dividerColor: _line,
+      popupMenuTheme: PopupMenuThemeData(
+        color: _glassPanel,
+        surfaceTintColor: Colors.transparent,
+        elevation: 10,
+        shadowColor: _glassShadow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(13),
+          side: const BorderSide(color: _glassBorder),
+        ),
+        textStyle: const TextStyle(
+          color: _ink,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      dropdownMenuTheme: DropdownMenuThemeData(
+        menuStyle: MenuStyle(
+          backgroundColor: const WidgetStatePropertyAll(_glassPanel),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          elevation: const WidgetStatePropertyAll(10),
+          shadowColor: const WidgetStatePropertyAll(_glassShadow),
+          side: const WidgetStatePropertyAll(BorderSide(color: _glassBorder)),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+        ),
+        textStyle: const TextStyle(
+          color: _ink,
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: _glassWash,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
+        labelStyle: const TextStyle(color: _muted, fontSize: 12),
+        hintStyle: const TextStyle(color: _muted, fontSize: 12),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(11),
+          borderSide: const BorderSide(color: _glassBorder),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(11),
+          borderSide: const BorderSide(color: _glassBorder),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(11),
+          borderSide: const BorderSide(color: _ink, width: 1.1),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          minimumSize: const Size(0, 34),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 36),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(11),
+          ),
+        ),
+      ),
+      textTheme: const TextTheme(
+        titleLarge: TextStyle(
+          color: _ink,
+          fontSize: 21,
+          fontWeight: FontWeight.w700,
+        ),
+        titleMedium: TextStyle(
+          color: _ink,
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
+        bodyLarge: TextStyle(color: _ink, fontSize: 14),
+        bodyMedium: TextStyle(color: _ink, fontSize: 13),
+        bodySmall: TextStyle(color: _muted, fontSize: 11),
+        labelLarge: TextStyle(color: _ink, fontSize: 12),
+      ),
+      dialogTheme: const DialogThemeData(
+        backgroundColor: _glassPanel,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: _glassShadow,
+        elevation: 12,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(20)),
+          side: BorderSide(color: _glassBorder),
+        ),
+        titleTextStyle: TextStyle(
+          color: _ink,
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
       fontFamily: 'SF Pro Text',
       useMaterial3: true,
     ),
     home: const TaskPage(),
   );
+}
+
+Future<T?> showGlassDialog<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+}) {
+  return showDialog<T>(
+    context: context,
+    builder: (dialogContext) => _GlassDialog(child: builder(dialogContext)),
+  );
+}
+
+Future<String?> showGlassChoices({
+  required BuildContext context,
+  required GlobalKey anchorKey,
+  required String? selected,
+  required Map<String, String> choices,
+}) {
+  final anchor = anchorKey.currentContext?.findRenderObject() as RenderBox?;
+  if (anchor == null) return Future.value(null);
+  final media = MediaQuery.of(context);
+  final origin = anchor.localToGlobal(Offset.zero);
+  final width = media.size.width;
+  final menuWidth = (anchor.size.width + 20)
+      .clamp(150.0, width - 32)
+      .toDouble();
+  final menuHeight = (choices.length * 40.0).clamp(40.0, 240.0);
+  final left = (origin.dx + anchor.size.width - menuWidth)
+      .clamp(16.0, width - menuWidth - 16)
+      .toDouble();
+  var top = origin.dy + anchor.size.height + 6;
+  if (top + menuHeight > media.size.height - media.padding.bottom - 16) {
+    top = (origin.dy - menuHeight - 6)
+        .clamp(16.0, media.size.height - menuHeight - 16)
+        .toDouble();
+  }
+  return showGeneralDialog<String>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Close options',
+    barrierColor: Colors.transparent,
+    transitionDuration: const Duration(milliseconds: 150),
+    pageBuilder: (context, _, _) => Stack(
+      children: [
+        Positioned.fill(
+          child: GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: const ColoredBox(color: Colors.transparent),
+          ),
+        ),
+        Positioned(
+          left: left,
+          top: top,
+          width: menuWidth,
+          child: _GlassSurface(
+            radius: 12,
+            blur: 20,
+            elevation: 10,
+            child: Material(
+              color: Colors.transparent,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 240),
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (final entry in choices.entries)
+                        InkWell(
+                          onTap: () => Navigator.pop(context, entry.key),
+                          child: Container(
+                            constraints: const BoxConstraints(minHeight: 40),
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    entry.value,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: _ink,
+                                      fontSize: 12,
+                                      fontWeight: entry.key == selected
+                                          ? FontWeight.w600
+                                          : FontWeight.w400,
+                                    ),
+                                  ),
+                                ),
+                                if (entry.key == selected)
+                                  const Icon(Icons.check_rounded, size: 15),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+    transitionBuilder: (context, animation, _, child) => FadeTransition(
+      opacity: animation,
+      child: ScaleTransition(
+        scale: Tween<double>(begin: .97, end: 1).animate(animation),
+        alignment: Alignment.topRight,
+        child: child,
+      ),
+    ),
+  );
+}
+
+class _GlassDialog extends StatelessWidget {
+  const _GlassDialog({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final transparentTheme = Theme.of(context).copyWith(
+      dialogTheme: Theme.of(context).dialogTheme.copyWith(
+        backgroundColor: Colors.transparent,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: Colors.transparent,
+        elevation: 0,
+      ),
+    );
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            borderRadius: BorderRadius.all(Radius.circular(20)),
+            boxShadow: [
+              BoxShadow(
+                color: _glassShadow,
+                blurRadius: 22,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: DecoratedBox(
+              decoration: const BoxDecoration(
+                color: _glassPanel,
+                border: Border.fromBorderSide(BorderSide(color: _glassBorder)),
+                borderRadius: BorderRadius.all(Radius.circular(20)),
+              ),
+              child: Theme(data: transparentTheme, child: child),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassSurface extends StatelessWidget {
+  const _GlassSurface({
+    required this.child,
+    this.color = _glassPanel,
+    this.radius = 16,
+    this.border = true,
+    this.blur = 16,
+    this.borderRadius,
+    this.elevation = 0,
+  });
+
+  final Widget child;
+  final Color color;
+  final double radius;
+  final bool border;
+  final double blur;
+  final BorderRadiusGeometry? borderRadius;
+  final double elevation;
+
+  @override
+  Widget build(BuildContext context) {
+    final shape = borderRadius ?? BorderRadius.circular(radius);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: shape,
+        boxShadow: elevation == 0
+            ? null
+            : [
+                BoxShadow(
+                  color: _glassShadow,
+                  blurRadius: elevation * 2,
+                  offset: Offset(0, elevation / 2),
+                ),
+              ],
+      ),
+      child: ClipRRect(
+        borderRadius: shape,
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: blur, sigmaY: blur),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: color,
+              border: border ? Border.all(color: _glassBorder) : null,
+              borderRadius: shape,
+            ),
+            child: child,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class TaskPage extends StatefulWidget {
@@ -196,19 +520,24 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 
-  Widget menuButton() => IconButton(
-    key: const ValueKey('navigation-menu'),
-    tooltip: 'Open navigation menu',
-    onPressed: () => setDrawer(drawerPosition == 0),
-    icon: const Icon(Icons.menu_rounded, size: 21),
-    style: IconButton.styleFrom(
-      fixedSize: const Size(36, 36),
-      backgroundColor: Colors.white,
-      foregroundColor: _ink,
-      shadowColor: const Color(0x2e191916),
-      elevation: 3,
-      padding: EdgeInsets.zero,
-      shape: const CircleBorder(),
+  Widget menuButton() => _GlassSurface(
+    radius: 17,
+    color: _glassPanel,
+    blur: 12,
+    elevation: 3,
+    child: IconButton(
+      key: const ValueKey('navigation-menu'),
+      tooltip: 'Open navigation menu',
+      onPressed: () => setDrawer(drawerPosition == 0),
+      icon: const Icon(Icons.menu_rounded, size: 19),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(34, 34),
+        backgroundColor: Colors.transparent,
+        foregroundColor: _ink,
+        elevation: 0,
+        padding: EdgeInsets.zero,
+        shape: const CircleBorder(),
+      ),
     ),
   );
 
@@ -254,87 +583,89 @@ class _TaskPageState extends State<TaskPage> {
           setDrawer(false);
           action(() => selectThread(Map<String, dynamic>.from(chat)));
         },
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: _line)),
-          ),
-          child: Stack(
-            children: [
-              Row(
-                children: [
-                  const Icon(
-                    Icons.chat_bubble_outline_rounded,
-                    size: 14,
-                    color: Color(0xffa0a19b),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          chatTitle(chat),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
+        child: _GlassSurface(
+          color: _glassSoft,
+          radius: 10,
+          elevation: 1,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+            child: Stack(
+              children: [
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 14,
+                      color: Color(0xffa0a19b),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            chatTitle(chat),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          chatMeta(chat),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 9, color: _muted),
+                          const SizedBox(height: 3),
+                          Text(
+                            chatMeta(chat),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 9, color: _muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      chat['updatedAt'] is String
+                          ? _relativeTime(chat['updatedAt'] as String)
+                          : '',
+                      style: const TextStyle(fontSize: 9, color: _muted),
+                    ),
+                  ],
+                ),
+                if (legacyExpandedProjectId != null &&
+                    chat['projectId'] == legacyExpandedProjectId &&
+                    chatTitle(chat) != (chat['title']?.toString() ?? '聊天'))
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    child: Opacity(
+                      opacity: 0,
+                      child: Text(chat['title']?.toString() ?? '聊天'),
+                    ),
+                  ),
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: Opacity(
+                    opacity: 0,
+                    child: PopupMenuButton<String>(
+                      key: ValueKey('thread-actions-$id'),
+                      tooltip: 'Chat actions',
+                      icon: const Icon(Icons.more_horiz, size: 18),
+                      onSelected: (_) => togglePinned(chat),
+                      itemBuilder: (context) => [
+                        PopupMenuItem(
+                          key: ValueKey('pin-thread-$id'),
+                          value: 'pin',
+                          child: Text(pinned ? 'Unpin' : 'Pin'),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Text(
-                    chat['updatedAt'] is String
-                        ? _relativeTime(chat['updatedAt'] as String)
-                        : '',
-                    style: const TextStyle(fontSize: 9, color: _muted),
-                  ),
-                ],
-              ),
-              if (legacyExpandedProjectId != null &&
-                  chat['projectId'] == legacyExpandedProjectId &&
-                  chatTitle(chat) != (chat['title']?.toString() ?? '聊天'))
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  child: Opacity(
-                    opacity: 0,
-                    child: Text(chat['title']?.toString() ?? '聊天'),
-                  ),
                 ),
-              Positioned(
-                top: 0,
-                right: 0,
-                child: Opacity(
-                  opacity: 0,
-                  child: PopupMenuButton<String>(
-                    key: ValueKey('thread-actions-$id'),
-                    tooltip: 'Chat actions',
-                    icon: const Icon(Icons.more_horiz, size: 18),
-                    onSelected: (_) => togglePinned(chat),
-                    itemBuilder: (context) => [
-                      PopupMenuItem(
-                        key: ValueKey('pin-thread-$id'),
-                        value: 'pin',
-                        child: Text(pinned ? 'Unpin' : 'Pin'),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -654,7 +985,7 @@ class _TaskPageState extends State<TaskPage> {
       for (final q in p['questions'] as List) {
         if (!mounted) return;
         final text = TextEditingController();
-        final answer = await showDialog<String>(
+        final answer = await showGlassDialog<String>(
           context: context,
           builder: (ctx) => AlertDialog(
             title: Text(q['question'] as String),
@@ -694,7 +1025,7 @@ class _TaskPageState extends State<TaskPage> {
       result = {'answers': answers};
     } else if (method == 'item/commandExecution/requestApproval' ||
         method == 'item/fileChange/requestApproval') {
-      final decision = await showDialog<String>(
+      final decision = await showGlassDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('任务需要审批'),
@@ -717,7 +1048,7 @@ class _TaskPageState extends State<TaskPage> {
       );
       if (decision != null) result = {'decision': decision};
     } else if (method == 'item/permissions/requestApproval') {
-      final accept = await showDialog<bool>(
+      final accept = await showGlassDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('额外权限'),
@@ -769,7 +1100,7 @@ class _TaskPageState extends State<TaskPage> {
       final values = <String, dynamic>{};
       String formError = '';
       if (!mounted) return;
-      result = await showDialog<Map<String, dynamic>>(
+      result = await showGlassDialog<Map<String, dynamic>>(
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, update) => AlertDialog(
@@ -890,7 +1221,7 @@ class _TaskPageState extends State<TaskPage> {
 
   Future<void> pair() async {
     final edit = TextEditingController();
-    final value = await showDialog<String>(
+    final value = await showGlassDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('连接电脑'),
@@ -1073,153 +1404,173 @@ class _TaskPageState extends State<TaskPage> {
               alignment: Alignment.centerLeft,
               child: SizedBox(
                 width: drawerWidth,
-                child: Container(
-                  color: Colors.white,
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    MediaQuery.paddingOf(context).top + 24,
-                    16,
-                    MediaQuery.paddingOf(context).bottom + 12,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Text(
-                            'Chats',
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -.3,
-                            ),
-                          ),
-                          const Spacer(),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Expanded(
-                        child: ListView(
-                          padding: EdgeInsets.zero,
+                child: _GlassSurface(
+                  color: _glassSoft,
+                  radius: 0,
+                  border: false,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      16,
+                      MediaQuery.paddingOf(context).top + 24,
+                      16,
+                      MediaQuery.paddingOf(context).bottom + 12,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            const SizedBox(
-                              width: 1,
-                              height: 1,
-                              child: Opacity(opacity: 0, child: Text('置顶')),
-                            ),
-                            const SizedBox(
-                              width: 1,
-                              height: 1,
-                              child: Opacity(opacity: 0, child: Text('项目')),
-                            ),
-                            sectionLabel('Recent'),
-                            for (final project in projects)
-                              SizedBox(
-                                width: 1,
-                                height: 1,
-                                child: GestureDetector(
-                                  key: PageStorageKey(
-                                    'project-${project['projectId']}',
-                                  ),
-                                  onTap: () => setState(
-                                    () => legacyExpandedProjectId =
-                                        project['projectId'] as String,
-                                  ),
-                                  child: Opacity(
-                                    opacity: 0,
-                                    child: Text(
-                                      project['label']?.toString() ?? 'Project',
-                                    ),
-                                  ),
-                                ),
+                            const Text(
+                              'Chats',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -.3,
                               ),
-                            for (final chat in recentThreads) threadTile(chat),
-                            if (recentThreads.isEmpty)
-                              const Text(
-                                'No recent chats',
-                                style: TextStyle(
-                                  color: Color(0xff999999),
-                                  fontSize: 12,
-                                ),
-                              ),
+                            ),
+                            const Spacer(),
                           ],
                         ),
-                      ),
-                      Row(
-                        children: [
-                          FilledButton.icon(
-                            key: const ValueKey('new-chat'),
-                            onPressed: busy || backend == null
-                                ? null
-                                : () {
-                                    setDrawer(false);
-                                    action(createThread);
-                                  },
-                            icon: const Icon(Icons.edit_outlined, size: 17),
-                            label: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text('Chat'),
-                                Opacity(opacity: 0, child: Text('新建聊天')),
-                              ],
-                            ),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size(116, 44),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
+                        const SizedBox(height: 20),
+                        Expanded(
+                          child: ListView(
+                            padding: EdgeInsets.zero,
+                            children: [
+                              const SizedBox(
+                                width: 1,
+                                height: 1,
+                                child: Opacity(opacity: 0, child: Text('置顶')),
                               ),
-                              backgroundColor: const Color(0xff0a84ff),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(24),
+                              const SizedBox(
+                                width: 1,
+                                height: 1,
+                                child: Opacity(opacity: 0, child: Text('项目')),
                               ),
-                            ),
-                          ),
-                          const Spacer(),
-                          IconButton(
-                            tooltip: 'Settings',
-                            onPressed: () => showDialog<void>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: const Text('Settings'),
-                                content: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    ListTile(
-                                      leading: const Icon(
-                                        Icons.computer_outlined,
+                              sectionLabel('Recent'),
+                              for (final project in projects)
+                                SizedBox(
+                                  width: 1,
+                                  height: 1,
+                                  child: GestureDetector(
+                                    key: PageStorageKey(
+                                      'project-${project['projectId']}',
+                                    ),
+                                    onTap: () => setState(
+                                      () => legacyExpandedProjectId =
+                                          project['projectId'] as String,
+                                    ),
+                                    child: Opacity(
+                                      opacity: 0,
+                                      child: Text(
+                                        project['label']?.toString() ??
+                                            'Project',
                                       ),
-                                      title: const Text('Connected computer'),
-                                      subtitle: Text(client.status),
-                                      onTap: () {
-                                        Navigator.pop(ctx);
-                                        action(pair);
-                                      },
                                     ),
-                                    ListTile(
-                                      leading: const Icon(Icons.tune_rounded),
-                                      title: const Text('Preferences'),
-                                      trailing: const Icon(Icons.chevron_right),
-                                    ),
-                                  ],
+                                  ),
+                                ),
+                              for (final chat in recentThreads)
+                                threadTile(chat),
+                              if (recentThreads.isEmpty)
+                                const Text(
+                                  'No recent chats',
+                                  style: TextStyle(
+                                    color: Color(0xff999999),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            FilledButton.icon(
+                              key: const ValueKey('new-chat'),
+                              onPressed: busy || backend == null
+                                  ? null
+                                  : () {
+                                      setDrawer(false);
+                                      action(createThread);
+                                    },
+                              icon: const Icon(Icons.edit_outlined, size: 15),
+                              label: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text('Chat'),
+                                  Opacity(opacity: 0, child: Text('新建聊天')),
+                                ],
+                              ),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size(108, 40),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                ),
+                                backgroundColor: _ink,
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24),
                                 ),
                               ),
                             ),
-                            icon: const Icon(Icons.settings_outlined, size: 20),
-                            style: IconButton.styleFrom(
-                              fixedSize: const Size(44, 44),
-                              backgroundColor: Colors.white,
-                              foregroundColor: const Color(0xff151515),
-                              shadowColor: const Color(0x1f191916),
+                            const Spacer(),
+                            _GlassSurface(
+                              radius: 19,
+                              color: _glassPanel,
+                              blur: 12,
                               elevation: 2,
-                              padding: EdgeInsets.zero,
-                              shape: const CircleBorder(),
-                              side: const BorderSide(color: Color(0xffdeded9)),
+                              child: IconButton(
+                                tooltip: 'Settings',
+                                onPressed: () => showGlassDialog<void>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    title: const Text('Settings'),
+                                    content: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        ListTile(
+                                          leading: const Icon(
+                                            Icons.computer_outlined,
+                                          ),
+                                          title: const Text(
+                                            'Connected computer',
+                                          ),
+                                          subtitle: Text(client.status),
+                                          onTap: () {
+                                            Navigator.pop(ctx);
+                                            action(pair);
+                                          },
+                                        ),
+                                        ListTile(
+                                          leading: const Icon(
+                                            Icons.tune_rounded,
+                                          ),
+                                          title: const Text('Preferences'),
+                                          trailing: const Icon(
+                                            Icons.chevron_right,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                icon: const Icon(
+                                  Icons.settings_outlined,
+                                  size: 18,
+                                ),
+                                style: IconButton.styleFrom(
+                                  fixedSize: const Size(38, 38),
+                                  backgroundColor: Colors.transparent,
+                                  foregroundColor: _ink,
+                                  elevation: 0,
+                                  padding: EdgeInsets.zero,
+                                  shape: const CircleBorder(),
+                                  side: BorderSide.none,
+                                ),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ],
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1277,8 +1628,11 @@ class _TaskPageState extends State<TaskPage> {
                     ),
                     child: Stack(
                       children: [
-                        const Positioned.fill(
-                          child: ColoredBox(color: _surface),
+                        Positioned.fill(
+                          child: BackdropFilter(
+                            filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                            child: const ColoredBox(color: _glassSoft),
+                          ),
                         ),
                         Positioned.fill(
                           child: SafeArea(
@@ -1340,7 +1694,7 @@ class _TaskPageState extends State<TaskPage> {
                                             ? 'Connected'
                                             : client.status,
                                         style: const TextStyle(
-                                          fontSize: 11,
+                                          fontSize: 10,
                                           color: _muted,
                                         ),
                                       ),
@@ -1367,7 +1721,7 @@ class _TaskPageState extends State<TaskPage> {
                                       child: Text(
                                         statusLabel,
                                         style: TextStyle(
-                                          fontSize: 11,
+                                          fontSize: 10,
                                           color: running
                                               ? const Color(0xff4b9b67)
                                               : const Color(0xff858585),
@@ -1420,7 +1774,7 @@ class _TaskPageState extends State<TaskPage> {
                                                       const Text(
                                                         'What are we building today?',
                                                         style: TextStyle(
-                                                          fontSize: 24,
+                                                          fontSize: 22,
                                                           fontWeight:
                                                               FontWeight.w600,
                                                           letterSpacing: -.8,
@@ -1587,31 +1941,36 @@ class _SuggestionRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: 42),
-        padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          border: Border(
-            top: isFirst ? const BorderSide(color: _line) : BorderSide.none,
-            bottom: const BorderSide(color: _line),
+    return Padding(
+      padding: EdgeInsets.only(bottom: isFirst ? 0 : 4),
+      child: _GlassSurface(
+        color: _glassSoft,
+        radius: 9,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(9),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 40),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xff6c6d67),
+                    ),
+                  ),
+                ),
+                const Icon(
+                  Icons.north_east_rounded,
+                  size: 14,
+                  color: Color(0xffa7a8a1),
+                ),
+              ],
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Color(0xff6c6d67)),
-              ),
-            ),
-            const Icon(
-              Icons.north_east_rounded,
-              size: 15,
-              color: Color(0xffa7a8a1),
-            ),
-          ],
         ),
       ),
     );
@@ -1707,22 +2066,25 @@ class _TimelineItem extends StatelessWidget {
                               alignment: Alignment.centerLeft,
                               child: _TimelineLabel(label!),
                             ),
-                          Container(
+                          ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 310),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 11,
-                            ),
-                            decoration: const BoxDecoration(
-                              color: Color(0xffe6e8e4),
-                              borderRadius: BorderRadius.only(
+                            child: _GlassSurface(
+                              color: const Color(0xc8e6e8e4),
+                              border: false,
+                              borderRadius: const BorderRadius.only(
                                 topLeft: Radius.circular(15),
                                 topRight: Radius.circular(15),
                                 bottomLeft: Radius.circular(15),
                                 bottomRight: Radius.circular(5),
                               ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 11,
+                                ),
+                                child: child,
+                              ),
                             ),
-                            child: child,
                           ),
                         ],
                       ),
@@ -1757,33 +2119,34 @@ class _ApprovalRow extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xffe5e5e5)),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.help_outline_rounded, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  request['method'] == 'item/tool/requestUserInput'
-                      ? 'Input needed to continue'
-                      : 'Approval needed to continue',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+        child: _GlassSurface(
+          color: _glassSoft,
+          radius: 10,
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.all(11),
+            child: Row(
+              children: [
+                const Icon(Icons.help_outline_rounded, size: 18),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    request['method'] == 'item/tool/requestUserInput'
+                        ? 'Input needed to continue'
+                        : 'Approval needed to continue',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
-              ),
-              const Icon(
-                Icons.chevron_right,
-                size: 18,
-                color: Color(0xff999999),
-              ),
-            ],
+                const Icon(
+                  Icons.chevron_right,
+                  size: 18,
+                  color: Color(0xff999999),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1808,47 +2171,50 @@ class _ComposerSelect extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 28),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        color: _wash,
+    final anchorKey = GlobalKey();
+    final selectedLabel = value == null
+        ? placeholder ?? ''
+        : labels[value] ?? '';
+    return _GlassSurface(
+      color: _glassWash,
+      radius: 8,
+      blur: 12,
+      elevation: 1,
+      child: InkWell(
+        key: anchorKey,
         borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (leading != null) ...[
-            Icon(leading, size: 13, color: const Color(0xff666761)),
-            const SizedBox(width: 5),
-          ],
-          DropdownButton<String>(
-            value: value,
-            hint: placeholder == null
-                ? null
-                : Text(
-                    placeholder!,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Color(0xff666761),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-            isDense: true,
-            underline: const SizedBox.shrink(),
-            icon: const Icon(Icons.keyboard_arrow_down, size: 14),
-            style: const TextStyle(
-              fontSize: 11,
-              color: Color(0xff666761),
-              fontWeight: FontWeight.w600,
-            ),
-            items: [
-              for (final entry in labels.entries)
-                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+        onTap: () async {
+          final next = await showGlassChoices(
+            context: context,
+            anchorKey: anchorKey,
+            selected: value,
+            choices: labels,
+          );
+          if (next != null) onChanged(next);
+        },
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 27),
+          padding: const EdgeInsets.symmetric(horizontal: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (leading != null) ...[
+                Icon(leading, size: 12, color: const Color(0xff666761)),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                selectedLabel,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Color(0xff666761),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(width: 2),
+              const Icon(Icons.keyboard_arrow_down, size: 13),
             ],
-            onChanged: onChanged,
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1886,78 +2252,80 @@ class _Composer extends StatelessWidget {
     final selectedModel = model ?? models.first;
     return Padding(
       padding: const EdgeInsets.fromLTRB(13, 0, 13, 10),
-      child: Container(
-        decoration: BoxDecoration(
-          color: _panel,
-          border: Border.all(color: const Color(0xffd9dad4)),
-          borderRadius: BorderRadius.circular(17),
-        ),
-        padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
-        child: Column(
-          children: [
-            TextField(
-              controller: input,
-              minLines: 1,
-              maxLines: 4,
-              decoration: InputDecoration(
-                hintText: hintText,
-                hintStyle: const TextStyle(color: _muted, fontSize: 14),
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 7),
+      child: _GlassSurface(
+        radius: 17,
+        color: _glassPanel,
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+          child: Column(
+            children: [
+              TextField(
+                controller: input,
+                minLines: 1,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  hintText: hintText,
+                  hintStyle: const TextStyle(color: _muted, fontSize: 13),
+                  border: InputBorder.none,
+                  filled: false,
+                  fillColor: Colors.transparent,
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 7),
+                ),
+                style: const TextStyle(fontSize: 13),
               ),
-              style: const TextStyle(fontSize: 14),
-            ),
-            Row(
-              children: [
-                _ComposerSelect(
-                  value: mode,
-                  leading: Icons.route_outlined,
-                  labels: const {'default': 'Default', 'plan': 'Plan'},
-                  onChanged: onModeChanged,
-                ),
-                const SizedBox(width: 8),
-                _ComposerSelect(
-                  value: selectedModel,
-                  labels: {for (final value in models) value: value},
-                  onChanged: onModelChanged,
-                ),
-                if (efforts.isNotEmpty) ...[
-                  const SizedBox(width: 4),
+              Row(
+                children: [
                   _ComposerSelect(
-                    value: effort,
-                    labels: {for (final value in efforts) value: value},
-                    placeholder: 'Effort',
-                    onChanged: onEffortChanged,
+                    value: mode,
+                    leading: Icons.route_outlined,
+                    labels: const {'default': 'Default', 'plan': 'Plan'},
+                    onChanged: onModeChanged,
                   ),
-                ],
-                const Spacer(),
-                if (running && onStop != null)
-                  IconButton(
-                    tooltip: 'Stop',
-                    onPressed: busy ? null : onStop,
-                    icon: const Icon(Icons.stop_circle_outlined, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 31,
-                      height: 31,
+                  const SizedBox(width: 6),
+                  _ComposerSelect(
+                    value: selectedModel,
+                    labels: {for (final value in models) value: value},
+                    onChanged: onModelChanged,
+                  ),
+                  if (efforts.isNotEmpty) ...[
+                    const SizedBox(width: 3),
+                    _ComposerSelect(
+                      value: effort,
+                      labels: {for (final value in efforts) value: value},
+                      placeholder: 'Effort',
+                      onChanged: onEffortChanged,
+                    ),
+                  ],
+                  const Spacer(),
+                  if (running && onStop != null)
+                    IconButton(
+                      tooltip: 'Stop',
+                      onPressed: busy ? null : onStop,
+                      icon: const Icon(Icons.stop_circle_outlined, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 31,
+                        height: 31,
+                      ),
+                    ),
+                  IconButton.filled(
+                    tooltip: running ? 'Steer' : '发送',
+                    onPressed: busy ? null : onSend,
+                    icon: const Icon(Icons.arrow_upward_rounded, size: 18),
+                    style: IconButton.styleFrom(
+                      backgroundColor: _ink,
+                      foregroundColor: Colors.white,
+                      fixedSize: const Size(32, 32),
+                      padding: EdgeInsets.zero,
+                      shape: const CircleBorder(),
                     ),
                   ),
-                IconButton.filled(
-                  tooltip: running ? 'Steer' : '发送',
-                  onPressed: busy ? null : onSend,
-                  icon: const Icon(Icons.arrow_upward_rounded, size: 18),
-                  style: IconButton.styleFrom(
-                    backgroundColor: _ink,
-                    foregroundColor: Colors.white,
-                    fixedSize: const Size(34, 34),
-                    padding: EdgeInsets.zero,
-                    shape: const CircleBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
