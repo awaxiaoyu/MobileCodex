@@ -9,6 +9,8 @@ on:
       - "apps/mobile/**"
       - "package.json"
       - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
       - "src/**"
       - "tests/**"
       - ".github/workflows/android.yml"
@@ -31,19 +33,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.0
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
+          cache: pnpm
 
       - name: Install Node dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck and test bridge
         run: |
-          npm run typecheck
-          npm test
+          pnpm typecheck
+          pnpm test
 
       - name: Set up Java
         uses: actions/setup-java@v4

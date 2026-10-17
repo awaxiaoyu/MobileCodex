@@ -4,7 +4,10 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+
+const _deviceChannel = MethodChannel('mobile_codex/device');
 
 class RpcFailure implements Exception {
   RpcFailure(this.code, this.message, this.requestId);
@@ -24,6 +27,25 @@ class BridgeClient extends ChangeNotifier {
   String status = '未连接';
   int counter = 0, retryAttempt = 0;
   bool closed = false;
+
+  /// Returns a stable, human-readable device label for the trusted-device list.
+  /// Native platforms provide the hardware model; tests and unsupported
+  /// platforms use an OS-only fallback without blocking pairing.
+  Future<String> deviceLabel() async {
+    try {
+      final value = await _deviceChannel.invokeMethod<String>('model');
+      if (value != null && value.trim().isNotEmpty) return value.trim();
+    } catch (_) {
+      // The channel is unavailable in Dart tests and on unsupported targets.
+    }
+    final version = Platform.operatingSystemVersion.trim();
+    final os = Platform.isIOS
+        ? 'iOS'
+        : Platform.isAndroid
+        ? 'Android'
+        : Platform.operatingSystem;
+    return version.isEmpty ? os : '$os ($version)';
+  }
 
   HttpClient pinnedClient(String fingerprint) {
     final expected = fingerprint.replaceAll(':', '').toLowerCase();
@@ -77,6 +99,7 @@ class BridgeClient extends ChangeNotifier {
         'fingerprint': pairing['fingerprint'],
         'token': result['token'],
         'deviceId': result['deviceId'],
+        'deviceName': name,
       };
       await storage.write(key: 'bridge', value: jsonEncode(credentials));
     } finally {
@@ -96,9 +119,13 @@ class BridgeClient extends ChangeNotifier {
     notifyListeners();
     try {
       http = pinnedClient(credentials!['fingerprint'] as String);
+      final deviceName = credentials!['deviceName'] as String? ?? await deviceLabel();
       final connection = await WebSocket.connect(
         credentials!['url'] as String,
-        headers: {'authorization': 'Bearer ${credentials!['token']}'},
+        headers: {
+          'authorization': 'Bearer ${credentials!['token']}',
+          'x-mobile-device-name': deviceName,
+        },
         customClient: http,
       );
       socket = connection;

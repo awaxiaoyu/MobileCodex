@@ -49,7 +49,9 @@ except ImportError as error:
 
 pid = args.pid or find_pid()
 probe_source = (args.workspace / "adapters" / "renderer" / "probe.js").read_text(encoding="utf-8")
-probe_source = probe_source.replace("export function installRendererProbe", "function installRendererProbe")
+# The renderer executes one classic-script expression, not an ES module.
+# Strip checked-in adapter exports before embedding the source.
+probe_source = probe_source.replace("export function ", "function ")
 arbitration_source = (args.workspace / 'adapters' / 'main' / 'arbitration.js').read_text(encoding='utf-8').replace('export function installApprovalArbitration', 'function installApprovalArbitration')
 state_key = "__mobileCodexBridge_" + os.urandom(12).hex()
 
@@ -67,7 +69,17 @@ bootstrap = r"""(() => {
   ARBITRATION_SOURCE
   const compatibility = COMPATIBILITY;
   if (process.platform !== compatibility.platform || process.arch !== compatibility.arch || ['node', 'electron', 'chrome', 'v8'].some((key) => process.versions[key] !== compatibility[key])) throw new Error('Unsupported Desktop Main runtime');
-  if (globalThis.__mobileCodexMainBridge) throw new Error('A Desktop shared adapter is already attached');
+  const existing = globalThis.__mobileCodexMainBridge;
+  if (existing && !existing.disposed) {
+    // A helper can disappear without getting a chance to send shutdown.  In
+    // that case the Main hook remains usable and its watchdog stops touching
+    // the heartbeat after the helper goes away.  Restore the old state once it
+    // is stale before installing a fresh handler on the Desktop IPC path.
+    const age = typeof existing.heartbeat === 'number' ? Date.now() - existing.heartbeat : Number.POSITIVE_INFINITY;
+    if (age < 12_000) throw new Error('A Desktop shared adapter is already attached');
+    existing.restore?.();
+    existing.disposed = true;
+  }
   const electron = process.mainModule.require('electron');
   const win = electron.webContents.getAllWebContents().find((item) => item.getType() === 'window' && item.getURL().startsWith('app:'));
   if (!win) throw new Error('No Codex shell renderer');
@@ -91,6 +103,7 @@ bootstrap = r"""(() => {
     clearInterval(watchdog);
     if (globalThis.__mobileCodexMainBridge === state) delete globalThis.__mobileCodexMainBridge;
   };
+  state.restore = restore;
   function metadata(direction, data) {
     if (!data || typeof data !== 'object') return;
     if (direction === 'main-to-renderer' && data.type === 'mcp-request' && data.hostId === 'local' && data.request) {
@@ -107,7 +120,18 @@ bootstrap = r"""(() => {
     });
     if (state.hookEvents.length > 500) state.hookEvents.shift();
   }
-  function wrappedHandler(...values) { metadata('renderer-to-main', values[1]); return Reflect.apply(originalHandler, this, values); }
+  function wrappedHandler(...values) {
+    const data = values.find((value) => value && typeof value === 'object' && value.type === 'mobile-codex-settings-request');
+    metadata('renderer-to-main', data);
+    if (data?.type === 'mobile-codex-settings-request' && typeof data.id === 'string' && ['status', 'pairing', 'revoke', 'feature'].includes(data.action)) {
+      if (data.action !== 'revoke' || data.payload && typeof data.payload.deviceId === 'string' && data.payload.deviceId.length <= 200) {
+        push({ kind: 'settings.request', requestId: data.id, action: data.action, payload: data.payload ?? {} });
+        return Promise.resolve({ mobileCodexSettingsAccepted: true });
+      }
+      return Promise.resolve({ mobileCodexSettingsAccepted: false });
+    }
+    return Reflect.apply(originalHandler, this, values);
+  }
   function wrappedSend(...values) { metadata('main-to-renderer', values[1]); return Reflect.apply(originalSend, this, values); }
   handlers.set(channel, wrappedHandler);
   const arbitration = installApprovalArbitration(handlers, channel, observedRequests, (event) => state.hookEvents.push({ kind: 'approval.claimed', ...event }));
@@ -123,7 +147,16 @@ bootstrap = r"""(() => {
   async function run(command) {
     if (state.disposed) throw new Error('Desktop adapter is disposed');
     if (!command || typeof command !== 'object' || typeof command.id !== 'string') throw new Error('Invalid bridge command');
-    if (command.op === 'install') return await win.executeJavaScript(RENDERER.replace('INSTALL_OPTIONS', JSON.stringify({allowControl: command.allowControl === true, allowApprovals: command.allowApprovals === true, hostId: command.hostId ?? 'local'})));
+    if (command.op === 'install') return await win.executeJavaScript(RENDERER.replace('INSTALL_OPTIONS', JSON.stringify({allowControl: command.allowControl === true, allowApprovals: command.allowApprovals === true, hostId: command.hostId ?? 'local', settingsUi: command.settingsUi ?? null})));
+    if (command.op === 'settings-diagnose') return await win.executeJavaScript('window.__mobileCodexBridgeSettings?.diagnose?.() ?? {ok:false,error:"settings controller unavailable"}');
+    if (command.op === 'settings-response') {
+      if (typeof command.requestId !== 'string' || command.requestId.length > 200) throw new Error('Invalid settings request id');
+      return await win.executeJavaScript(`window.__mobileCodexBridgeSettings?.resolve?.(${JSON.stringify(command.requestId)}, ${JSON.stringify(command.payload)}, ${JSON.stringify(command.error ?? null)}) ?? {resolved:false}`);
+    }
+    if (command.op === 'settings-feature') {
+      if (!['allow-control', 'approval-forwarding'].includes(command.feature) || typeof command.enabled !== 'boolean') throw new Error('Invalid settings feature');
+      return await win.executeJavaScript(`window.__mobileCodexProbe?.setPolicy?.(${JSON.stringify(command.feature)}, ${JSON.stringify(command.enabled)}) ?? {stopped:true}`);
+    }
     if (command.op === 'call') {
       if (!['model/list', 'thread/list', 'thread/read', 'thread/start', 'thread/resume', 'turn/start', 'turn/steer', 'turn/interrupt'].includes(command.method)) throw new Error('Method is not registered');
       return await win.executeJavaScript(`window.__mobileCodexProbe.call(${JSON.stringify(command.method)}, ${JSON.stringify(command.params ?? {})})`);
@@ -180,6 +213,7 @@ const run = native('napi_run_script', 'int', ['pointer', 'pointer', 'pointer']);
 const read = native('napi_get_value_string_utf8', 'int', ['pointer', 'pointer', 'pointer', 'uint64', 'pointer']);
 const isPending = native('napi_is_exception_pending', 'int', ['pointer', 'pointer']);
 const clear = native('napi_get_and_clear_last_exception', 'int', ['pointer', 'pointer']);
+const coerceString = native('napi_coerce_to_string', 'int', ['pointer', 'pointer', 'pointer']);
 let env = null, isolate = null, owner = null, busy = false, started = false, last = 0;
 const commands = [];
 function waitCommand() { recv('command', (message) => { commands.push(message.payload); waitCommand(); }); }
@@ -195,7 +229,18 @@ function evaluate(code) {
     if (opened !== 0) throw Error('napi scope status: ' + opened);
     if (makeString(env, source, new UInt64('18446744073709551615'), script) !== 0) throw Error('napi string creation failed');
     const status = run(env, script.readPointer(), result);
-    if (status !== 0) { if (status === 10) clear(env, result); throw Error('napi execution status: ' + status); }
+    if (status !== 0) {
+      let detail = '';
+      if (status === 10 || isPending(env, flag) === 0 && flag.readU8()) {
+        const exception = Memory.alloc(8), text = Memory.alloc(8), exceptionLength = Memory.alloc(8);
+        if (clear(env, exception) === 0 && coerceString(env, exception.readPointer(), text) === 0 && read(env, text.readPointer(), ptr(0), 0, exceptionLength) === 0) {
+          const size = Number(exceptionLength.readU64()) + 1, buffer = Memory.alloc(Math.min(size, 16 * 1024));
+          const readSize = Math.min(size, 16 * 1024);
+          if (read(env, text.readPointer(), buffer, readSize, exceptionLength) === 0) detail = buffer.readUtf8String(Math.min(Number(exceptionLength.readU64()), readSize - 1));
+        }
+      }
+      throw Error('napi execution status: ' + status + (detail ? ' (' + detail + ')' : ''));
+    }
     started = true;
     if (read(env, result.readPointer(), ptr(0), 0, length) !== 0) throw Error('napi result length failed');
     const size = Number(length.readU64()) + 1;
@@ -239,7 +284,7 @@ def on_message(message, data):
         emit({"type": "agent-error", "description": message.get("description", "Frida agent error")})
 script.on("message", on_message)
 script.load()
-emit({"type": "ready", "pid": pid, "stateKey": state_key})
+emit({"type": "ready", "pid": pid, "stateKey": state_key, "pythonVersion": sys.version.split()[0], "fridaVersion": getattr(frida, "__version__", "unknown")})
 
 try:
     for line in sys.stdin:

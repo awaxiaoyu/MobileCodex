@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { BridgeError } from './errors.ts';
 
 // Covers the Draft-07 constructs used by the checked-in Codex request/response
@@ -57,7 +58,9 @@ const cache = new Map<string, any>();
 export function validateNative(name: string, value: unknown) {
   let schema = cache.get(name);
   if (!schema) {
-    schema = JSON.parse(readFileSync(new URL(`../schemas/codex/${name}.json`, import.meta.url), 'utf8'));
+    const appRoot = process.env.MOBILE_CODEX_APP_ROOT;
+    const schemaPath = appRoot ? resolve(appRoot, 'schemas', 'codex', `${name}.json`) : new URL(`../schemas/codex/${name}.json`, import.meta.url);
+    schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
     cache.set(name, schema);
   }
   const errors = schemaErrors(schema, value);

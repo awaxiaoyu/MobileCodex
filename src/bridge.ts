@@ -42,6 +42,7 @@ export class Bridge extends EventEmitter {
   readonly streams = new Map<string, { generation: number; streamId: string; seq: number; cache: Envelope[]; bytes: number }>();
   maxEventCache: number;
   maxCacheBytes: number;
+  eventStreamEnabled = true;
   artifacts?: ArtifactStore;
   constructor(options: { maxEventCache?: number; maxCacheBytes?: number; workspace?: string } = {}) {
     super(); this.maxEventCache = options.maxEventCache ?? 500; this.maxCacheBytes = options.maxCacheBytes ?? 8 * 1024 * 1024;
@@ -70,6 +71,34 @@ export class Bridge extends EventEmitter {
   async close() { await Promise.allSettled([...this.backends.values()].map((b) => b.close())); }
   listBackends() {
     return [...this.backends.values()].map((b) => ({ id: b.id, kind: b.kind, generation: b.generation, status: b.status, methods: [...b.methods] }));
+  }
+  streamStatus() {
+    return [...this.streams.entries()].map(([backendId, stream]) => ({
+      backendId,
+      generation: stream.generation,
+      streamId: stream.streamId,
+      seq: stream.seq,
+      cachedEvents: stream.cache.length,
+      cachedBytes: stream.bytes,
+      maxEvents: this.maxEventCache,
+      maxBytes: this.maxCacheBytes,
+    }));
+  }
+  setEventStreamEnabled(enabled: boolean) {
+    this.eventStreamEnabled = enabled;
+    if (!enabled) this.streams.clear();
+    return this.eventStreamEnabled;
+  }
+  uiStatus() {
+    return {
+      bridge: { status: 'running', version: '0.2.0' },
+      eventStreamEnabled: this.eventStreamEnabled,
+      backends: this.listBackends().map((backend) => ({
+        ...backend,
+        details: this.backends.get(backend.id)?.uiStatus?.() ?? {},
+      })),
+      streams: this.streamStatus(),
+    };
   }
   capabilities() {
     return {
@@ -203,6 +232,7 @@ export class Bridge extends EventEmitter {
     return stream;
   }
   private publish(backend: Backend, event: Envelope) {
+    if (!this.eventStreamEnabled) return;
     const stream = this.streamFor(backend);
     event.backendId = backend.id; event.backendGeneration = backend.generation;
     event.streamId = stream.streamId; event.seq = ++stream.seq;

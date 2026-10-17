@@ -4,13 +4,14 @@ import { readFile, mkdir, writeFile, rename } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { BridgeError } from './errors.ts';
 
-type Device = { id: string; name: string; tokenHash: string; createdAt: string; revokedAt?: string };
+type Device = { id: string; name: string; tokenHash: string; createdAt: string; lastSeenAt?: string; lastAddress?: string; revokedAt?: string };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const same = (left: string, right: string) => { const a = Buffer.from(left); const b = Buffer.from(right); return a.length === b.length && timingSafeEqual(a, b); };
 
 export class DeviceStore extends EventEmitter {
   private file: string;
   private devices: Device[] = [];
+  private connected = new Set<string>();
   private pairing?: { id: string; secretHash: string; expiresAt: number };
   private writes = Promise.resolve();
   constructor(file: string) { super(); this.file = file; }
@@ -35,11 +36,32 @@ export class DeviceStore extends EventEmitter {
     return { deviceId, token };
   }
   authenticate(token: string) { return this.devices.find((d) => !d.revokedAt && same(d.tokenHash, hash(token))); }
-  list() { return this.devices.map(({ tokenHash, ...view }) => view); }
+  async markSeen(id: string, address?: string) {
+    const device = this.devices.find((d) => d.id === id && !d.revokedAt);
+    if (!device) return;
+    device.lastSeenAt = new Date().toISOString();
+    if (address) device.lastAddress = address;
+    await this.save();
+  }
+  async updateName(id: string, name: string) {
+    const device = this.devices.find((d) => d.id === id && !d.revokedAt);
+    const normalized = name.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (!device || !normalized || device.name === normalized) return;
+    device.name = normalized;
+    await this.save();
+  }
+  setConnected(id: string, connected: boolean) {
+    if (connected) this.connected.add(id); else this.connected.delete(id);
+    this.emit('connection', { id, connected });
+  }
+  list() { return this.devices.map(({ tokenHash, ...view }) => ({ ...view, connected: this.connected.has(view.id) })); }
   async revoke(id: string) {
-    const device = this.devices.find((d) => d.id === id);
-    if (!device) throw new BridgeError('device.not_found', 'Unknown device');
-    device.revokedAt = new Date().toISOString(); this.emit('revoked', id); await this.save();
+    const index = this.devices.findIndex((d) => d.id === id);
+    if (index < 0) throw new BridgeError('device.not_found', 'Unknown device');
+    this.devices.splice(index, 1);
+    this.connected.delete(id);
+    this.emit('revoked', id);
+    await this.save();
   }
   private save() {
     this.writes = this.writes.then(async () => {

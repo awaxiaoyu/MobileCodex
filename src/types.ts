@@ -29,4 +29,6 @@ export interface Backend extends EventEmitter {
   respond?(id: NativeId, result: unknown): void | Promise<void>;
   flush?(): Promise<void>;
   close(): Promise<void>;
+  /** A redacted, local-only status view for the Desktop settings panel. */
+  uiStatus?(): Record<string, any>;
 }

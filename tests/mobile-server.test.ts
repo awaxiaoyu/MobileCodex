@@ -27,10 +27,14 @@ test('WSS rejects unpaired clients, round-trips RPC and closes revoked devices',
       const req = request({ hostname: '127.0.0.1', port, path: '/pair', method: 'POST', rejectUnauthorized: false }, (res) => { let text = ''; res.on('data', (c) => text += c); res.on('end', () => resolve(JSON.parse(text))); });
       req.on('error', reject); req.end(JSON.stringify({ ...pairing, name: 'test phone' }));
     });
-    const ws = new WebSocket(`wss://127.0.0.1:${port}/ws`, { rejectUnauthorized: false, headers: { authorization: `Bearer ${response.token}` } });
+    const ws = new WebSocket(`wss://127.0.0.1:${port}/ws`, { rejectUnauthorized: false, headers: { authorization: `Bearer ${response.token}`, 'x-mobile-device-name': 'Pixel 9 Pro (Android 15; SDK 35)' } });
     const ready = once(ws, 'message'); await once(ws, 'open'); await ready;
+    assert.equal(devices.list().find((device) => device.id === response.deviceId)?.connected, true);
+    for (let attempt = 0; attempt < 20 && devices.list()[0]?.name !== 'Pixel 9 Pro (Android 15; SDK 35)'; attempt++) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(devices.list()[0]?.name, 'Pixel 9 Pro (Android 15; SDK 35)');
     const received = once(ws, 'message'); ws.send(JSON.stringify({ v: 1, kind: 'request', id: 'r', method: 'bridge.backends.list', payload: {} }));
     assert.equal(JSON.parse((await received)[0].toString()).id, 'r');
     const closed = once(ws, 'close'); await devices.revoke(response.deviceId); assert.equal((await closed)[0], 1008);
+    assert.equal(devices.list().some((device) => device.id === response.deviceId), false);
   } finally { mobile.close(); await once(mobile.server, 'close'); await rm(root, { recursive: true, force: true }); }
 });

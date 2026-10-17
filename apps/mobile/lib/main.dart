@@ -961,7 +961,8 @@ class _TaskPageState extends State<TaskPage> {
     await WidgetsBinding.instance.endOfFrame;
     edit.dispose();
     if (value != null) {
-      await client.pair(value, Platform.isIOS ? 'iPhone' : 'Android');
+      final deviceName = await client.deviceLabel();
+      await client.pair(value, deviceName);
     }
   }
 

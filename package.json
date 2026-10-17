@@ -17,15 +17,21 @@
     "smoke:turn": "node scripts/smoke-turn.ts",
     "smoke:plan": "node scripts/smoke-plan.ts",
     "smoke:mobile": "node scripts/smoke-mobile-desktop.ts",
+    "benchmark": "node scripts/benchmark.ts",
+    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows.ps1",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test tests/*.test.ts"
   },
   "dependencies": {
+    "qrcode": "1.5.4",
     "ws": "8.22.0"
   },
   "devDependencies": {
     "@types/node": "26.6.5",
+    "@types/qrcode": "1.5.5",
     "@types/ws": "8.18.2",
+    "esbuild": "0.28.2",
+    "postject": "1.0.0-alpha.6",
     "typescript": "7.0.2"
   }
 }

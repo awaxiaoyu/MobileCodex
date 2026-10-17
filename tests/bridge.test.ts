@@ -54,6 +54,21 @@ test('bridge emits bounded, resumable events', async () => {
   assert.throws(() => bridge.resume('fake', 0), (error: any) => error.code === 'snapshot.required');
 });
 
+test('bridge event stream switch reports and suppresses events when disabled', async () => {
+  const bridge = new Bridge();
+  const backend = new FakeBackend();
+  await bridge.addBackend(backend as any);
+  const events: any[] = [];
+  bridge.on('event', (event) => events.push(event));
+  bridge.setEventStreamEnabled(false);
+  backend.emit('notification', { method: 'item/agentMessage/delta', params: { threadId: 't', turnId: 'u', itemId: 'i', delta: 'hidden' } });
+  assert.equal(events.length, 0);
+  assert.equal(bridge.uiStatus().eventStreamEnabled, false);
+  bridge.setEventStreamEnabled(true);
+  backend.emit('notification', { method: 'item/agentMessage/delta', params: { threadId: 't', turnId: 'u', itemId: 'i', delta: 'visible' } });
+  assert.equal(events.length, 1);
+});
+
 test('bridge returns a structured error instead of throwing for request failures', async () => {
   const bridge = new Bridge();
   await bridge.addBackend(new FakeBackend() as any);

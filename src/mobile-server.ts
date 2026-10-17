@@ -17,6 +17,9 @@ export function createMobileServer(bridge: Bridge, devices: DeviceStore, options
     const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
     const device = token && devices.authenticate(token);
     if (!device) throw new BridgeError('auth.required', 'Paired device token required');
+    const deviceName = req.headers['x-mobile-device-name'];
+    if (typeof deviceName === 'string') void devices.updateName(device.id, deviceName).catch(() => {});
+    void devices.markSeen(device.id, req.socket.remoteAddress).catch(() => {});
     return device;
   };
   const server = createServer({ cert: certificate, key: readFileSync(options.key), minVersion: 'TLSv1.2' }, async (req, res) => {
@@ -44,7 +47,7 @@ export function createMobileServer(bridge: Bridge, devices: DeviceStore, options
     try {
       if (req.url !== '/ws') throw new BridgeError('http.not_found', 'WebSocket endpoint not found');
       const device = authenticate(req);
-      wss.handleUpgrade(req, socket, head, (ws) => { sockets.set(ws, device.id); wss.emit('connection', ws); });
+      wss.handleUpgrade(req, socket, head, (ws) => { sockets.set(ws, device.id); devices.setConnected(device.id, true); wss.emit('connection', ws); });
     } catch { socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'); }
   });
   const send = (ws: WebSocket, value: any) => {
@@ -58,13 +61,18 @@ export function createMobileServer(bridge: Bridge, devices: DeviceStore, options
       try { const message = JSON.parse(bytes.toString()); send(ws, await bridge.handle(message)); }
       catch (error) { send(ws, { v: 1, kind: 'error', method: 'protocol.error', payload: errorPayload(error) }); }
     });
-    ws.on('close', () => sockets.delete(ws));
-    ws.on('error', () => sockets.delete(ws));
+    const disconnect = () => {
+      const deviceId = sockets.get(ws);
+      sockets.delete(ws);
+      if (deviceId && ![...sockets.values()].includes(deviceId)) devices.setConnected(deviceId, false);
+    };
+    ws.on('close', disconnect);
+    ws.on('error', disconnect);
   });
   const broadcast = (event: any) => { for (const socket of sockets.keys()) send(socket, event); };
   const revoke = (id: string) => { for (const [socket, deviceId] of sockets) if (deviceId === id) { sockets.delete(socket); socket.close(1008, 'Device revoked'); } };
   bridge.on('event', broadcast); devices.on('revoked', revoke);
   const heartbeat = setInterval(() => { for (const socket of sockets.keys()) socket.ping(); }, 25000); heartbeat.unref();
-  server.on('close', () => { clearInterval(heartbeat); bridge.off('event', broadcast); devices.off('revoked', revoke); for (const socket of sockets.keys()) socket.terminate(); wss.close(); });
+  server.on('close', () => { clearInterval(heartbeat); bridge.off('event', broadcast); devices.off('revoked', revoke); for (const [socket, deviceId] of sockets) { devices.setConnected(deviceId, false); socket.terminate(); } sockets.clear(); wss.close(); });
   return { server, fingerprint, close() { for (const socket of sockets.keys()) socket.terminate(); server.close(); } };
 }
