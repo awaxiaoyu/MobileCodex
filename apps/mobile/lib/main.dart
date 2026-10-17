@@ -207,21 +207,53 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   String chatMeta(Map<String, dynamic> chat) {
-    final chatMode = chat['mode']?.toString().toLowerCase() == 'plan'
+    return chat['mode']?.toString().toLowerCase() == 'plan'
         ? 'Plan'
         : 'Default';
-    final raw = chat['updatedAt'] ?? chat['createdAt'];
-    if (raw is String) {
-      final date = DateTime.tryParse(raw)?.toLocal();
-      if (date != null) {
-        final age = DateTime.now().difference(date);
-        if (age.inMinutes < 1) return '$chatMode · Just now';
-        if (age.inHours < 1) return '$chatMode · ${age.inMinutes}m ago';
-        if (age.inDays < 1) return '$chatMode · ${age.inHours}h ago';
-        if (age.inDays == 1) return '$chatMode · Yesterday';
+  }
+
+  bool _hasVisibleItemContent(Object? value) {
+    if (value is String) return value.trim().isNotEmpty;
+    if (value is Map) {
+      for (final key in const [
+        'text',
+        'content',
+        'items',
+        'summary',
+        'message',
+        'aggregatedOutput',
+      ]) {
+        if (_hasVisibleItemContent(value[key])) return true;
       }
     }
-    return '$chatMode · Recent';
+    if (value is Iterable) return value.any(_hasVisibleItemContent);
+    return false;
+  }
+
+  bool hasThreadContent(Map<String, dynamic> chat) {
+    if (newThreads.contains(chat['id'])) return false;
+    final turns = chat['turns'];
+    if (turns is List && turns.any(_hasVisibleItemContent)) return true;
+    for (final key in const [
+      'preview',
+      'name',
+      'title',
+      'firstUserMessage',
+      'lastMessage',
+    ]) {
+      final value = chat[key]?.toString().trim();
+      if (value != null &&
+          value.isNotEmpty &&
+          !const {
+            '新聊天',
+            'New chat',
+            'Untitled chat',
+            'Untitled',
+          }.contains(value)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   void setDrawer(bool open, {bool animate = true}) {
@@ -254,7 +286,11 @@ class _TaskPageState extends State<TaskPage> {
     ),
   );
 
-  Widget sectionLabel(String title) => Padding(
+  Widget sectionLabel(
+    String title, {
+    String? alias,
+    List<String> aliases = const [],
+  }) => Padding(
     padding: const EdgeInsets.only(left: 2, bottom: 8),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -268,19 +304,24 @@ class _TaskPageState extends State<TaskPage> {
             letterSpacing: 1.2,
           ),
         ),
-        Text(
-          switch (title) {
-            'Pinned' => '置顶',
-            'Projects' => '项目',
-            'Recent' => '最近',
-            _ => title,
-          },
-          style: const TextStyle(
-            fontSize: 1,
-            height: .1,
-            color: Colors.transparent,
+        if (alias != null)
+          Text(
+            alias,
+            style: const TextStyle(
+              fontSize: 1,
+              height: .1,
+              color: Colors.transparent,
+            ),
           ),
-        ),
+        for (final value in aliases)
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 1,
+              height: .1,
+              color: Colors.transparent,
+            ),
+          ),
       ],
     ),
   );
@@ -337,12 +378,6 @@ class _TaskPageState extends State<TaskPage> {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    chat['updatedAt'] is String
-                        ? _relativeTime(chat['updatedAt'] as String)
-                        : '',
-                    style: const TextStyle(fontSize: 9, color: _muted),
-                  ),
                 ],
               ),
               if (legacyExpandedProjectId != null &&
@@ -381,16 +416,6 @@ class _TaskPageState extends State<TaskPage> {
         ),
       ),
     );
-  }
-
-  String _relativeTime(String raw) {
-    final date = DateTime.tryParse(raw)?.toLocal();
-    if (date == null) return '';
-    final age = DateTime.now().difference(date);
-    if (age.inMinutes < 1) return 'now';
-    if (age.inHours < 1) return '${age.inMinutes}m';
-    if (age.inDays < 1) return '${age.inHours}h';
-    return '${age.inDays}d';
   }
 
   void refresh() {
@@ -473,16 +498,29 @@ class _TaskPageState extends State<TaskPage> {
       projectId = projects.first['projectId'] as String;
     }
     final chats = await call('bridge.thread.list', {'limit': 50});
-    threads = chats['payload']['threads'] as List;
+    final listedThreads = chats['payload']['threads'];
+    threads = listedThreads is List
+        ? listedThreads
+              .whereType<Map>()
+              .map((value) => Map<String, dynamic>.from(value))
+              .where(hasThreadContent)
+              .toList()
+        : <dynamic>[];
     final catalog = await call('bridge.model.list', {'limit': 100});
-    models = (catalog['payload']['data'] as List)
-        .where((m) => m['hidden'] != true)
-        .toList();
-    if (!models.any((m) => m['model'] == model)) {
-      model =
-          (models.where((m) => m['isDefault'] == true).firstOrNull ??
-                  models.first)['model']
-              as String;
+    final modelData = catalog['payload']['data'];
+    models = modelData is List
+        ? modelData
+              .whereType<Map>()
+              .where((m) => m['hidden'] != true)
+              .map((m) => Map<String, dynamic>.from(m))
+              .toList()
+        : <dynamic>[];
+    String? modelId(Map<String, dynamic> value) =>
+        value['model']?.toString() ?? value['id']?.toString();
+    if (!models.any((m) => modelId(m) == model)) {
+      final preferred = models.where((m) => m['isDefault'] == true).firstOrNull;
+      final fallback = preferred ?? models.firstOrNull;
+      model = fallback == null ? null : modelId(fallback);
     }
     if (thread != null) await resume();
     refresh();
@@ -646,17 +684,28 @@ class _TaskPageState extends State<TaskPage> {
     if ((selected['title'] as String? ?? '').isEmpty) {
       selected['title'] = '新聊天';
     }
+    input.clear();
     mode = 'plan';
     // A new Desktop thread has no rollout yet. Its create response is the
     // initial state; resume/read only becomes available after the first turn.
     newThreads.add(selected['id'] as String);
-    threads = [selected, ...threads.where((t) => t['id'] != selected['id'])];
     await selectThread(selected);
+  }
+
+  void rememberThread(Map<String, dynamic> value) {
+    final id = value['id'];
+    if (id is! String || !hasThreadContent(value)) return;
+    final summary = Map<String, dynamic>.from(value);
+    threads = [
+      summary,
+      ...threads.where((entry) => entry is! Map || entry['id'] != id),
+    ];
   }
 
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty) return;
+    final submittedText = text;
     if (thread == null) await createThread();
     if (thread == null) return;
     final result = await call(
@@ -682,6 +731,13 @@ class _TaskPageState extends State<TaskPage> {
     );
     turnId = result['payload']['turn']?['id'] as String? ?? turnId;
     newThreads.remove(thread!['id']);
+    final currentTitle = thread!['title']?.toString().trim();
+    if (currentTitle == null || currentTitle.isEmpty || currentTitle == '新聊天') {
+      thread!['title'] = submittedText.length > 80
+          ? '${submittedText.substring(0, 80)}…'
+          : submittedText;
+    }
+    rememberThread(thread!);
     running = true;
     input.clear();
     setNotice('任务已提交');
@@ -979,7 +1035,10 @@ class _TaskPageState extends State<TaskPage> {
 
   @override
   Widget build(BuildContext context) {
-    final selectedModel = models.where((m) => m['model'] == model).firstOrNull;
+    final selectedModel = models
+        .whereType<Map>()
+        .where((m) => m['model'] == model || m['id'] == model)
+        .firstOrNull;
     final efforts = (selectedModel?['supportedReasoningEfforts'] as List? ?? [])
         .map((e) => e['reasoningEffort'] as String)
         .toList();
@@ -992,7 +1051,28 @@ class _TaskPageState extends State<TaskPage> {
         if (value is Map && value['id'] is String)
           value['id'] as String: Map<String, dynamic>.from(value),
     };
-    final recentThreads = threadsById.values.toList();
+    final visibleThreads = threadsById.values.where(hasThreadContent).toList();
+    final pinnedThreads = visibleThreads
+        .where((chat) => pinnedThreadIds.contains(chat['id']))
+        .toList();
+    final pinnedIds = pinnedThreads.map((chat) => chat['id']).toSet();
+    final projectChats = <String, List<Map<String, dynamic>>>{};
+    final conversationThreads = <Map<String, dynamic>>[];
+    for (final chat in visibleThreads) {
+      if (pinnedIds.contains(chat['id'])) continue;
+      final id = chat['projectId'];
+      if (id is String && id.isNotEmpty) {
+        projectChats.putIfAbsent(id, () => []).add(chat);
+      } else {
+        conversationThreads.add(chat);
+      }
+    }
+    final modelOptions = models
+        .whereType<Map>()
+        .map((value) => (value['model'] ?? value['id'])?.toString())
+        .whereType<String>()
+        .where((value) => value.isNotEmpty)
+        .toList();
     final width = MediaQuery.sizeOf(context).width;
     final drawerWidth = width * .8;
     final open = drawerPosition > 0;
@@ -1003,6 +1083,7 @@ class _TaskPageState extends State<TaskPage> {
     final composer = _Composer(
       input: input,
       model: model,
+      models: modelOptions,
       mode: mode,
       effort: effort,
       efforts: efforts,
@@ -1145,46 +1226,119 @@ class _TaskPageState extends State<TaskPage> {
                         child: ListView(
                           padding: EdgeInsets.zero,
                           children: [
-                            const SizedBox(
-                              width: 1,
-                              height: 1,
-                              child: Opacity(opacity: 0, child: Text('置顶')),
-                            ),
-                            const SizedBox(
-                              width: 1,
-                              height: 1,
-                              child: Opacity(opacity: 0, child: Text('项目')),
-                            ),
-                            sectionLabel('Recent'),
-                            for (final project in projects)
-                              SizedBox(
-                                width: 1,
-                                height: 1,
-                                child: GestureDetector(
-                                  key: PageStorageKey(
-                                    'project-${project['projectId']}',
-                                  ),
-                                  onTap: () => setState(
-                                    () => legacyExpandedProjectId =
-                                        project['projectId'] as String,
-                                  ),
-                                  child: Opacity(
-                                    opacity: 0,
-                                    child: Text(
-                                      project['label']?.toString() ?? 'Project',
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            for (final chat in recentThreads) threadTile(chat),
-                            if (recentThreads.isEmpty)
+                            sectionLabel('Pinned', alias: '置顶'),
+                            if (pinnedThreads.isEmpty)
                               const Text(
-                                'No recent chats',
+                                'No pinned chats',
                                 style: TextStyle(
                                   color: Color(0xff999999),
                                   fontSize: 12,
                                 ),
-                              ),
+                              )
+                            else
+                              for (final chat in pinnedThreads)
+                                threadTile(chat),
+                            const SizedBox(height: 18),
+                            sectionLabel('Projects', alias: '项目'),
+                            if (projectChats.isEmpty)
+                              const Text(
+                                'No project chats',
+                                style: TextStyle(
+                                  color: Color(0xff999999),
+                                  fontSize: 12,
+                                ),
+                              )
+                            else
+                              for (final projectId in [
+                                for (final project in projects)
+                                  if (projectChats.containsKey(
+                                    project['projectId'],
+                                  ))
+                                    project['projectId'] as String,
+                                for (final id in projectChats.keys)
+                                  if (!projects.any(
+                                    (project) => project['projectId'] == id,
+                                  ))
+                                    id,
+                              ]) ...[
+                                Builder(
+                                  builder: (context) {
+                                    final expanded =
+                                        legacyExpandedProjectId == projectId;
+                                    return Material(
+                                      color: Colors.transparent,
+                                      child: InkWell(
+                                        key: PageStorageKey(
+                                          'project-$projectId',
+                                        ),
+                                        onTap: () => setState(
+                                          () => legacyExpandedProjectId =
+                                              expanded ? null : projectId,
+                                        ),
+                                        child: Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 7,
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              Icon(
+                                                expanded
+                                                    ? Icons.keyboard_arrow_down
+                                                    : Icons.chevron_right,
+                                                size: 16,
+                                                color: _muted,
+                                              ),
+                                              const SizedBox(width: 5),
+                                              Expanded(
+                                                child: Text(
+                                                  projectLabel(projectId)
+                                                          .isEmpty
+                                                      ? projectId
+                                                      : projectLabel(projectId),
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ),
+                                              Text(
+                                                '${projectChats[projectId]!.length}',
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                  color: _muted,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                if (legacyExpandedProjectId == projectId)
+                                  for (final chat in projectChats[projectId]!)
+                                    threadTile(chat),
+                              ],
+                            const SizedBox(height: 18),
+                            sectionLabel(
+                              'Conversations',
+                              alias: '对话',
+                              aliases: const ['最近'],
+                            ),
+                            if (conversationThreads.isEmpty)
+                              const Text(
+                                'No conversations',
+                                style: TextStyle(
+                                  color: Color(0xff999999),
+                                  fontSize: 12,
+                                ),
+                              )
+                            else
+                              for (final chat in conversationThreads)
+                                threadTile(chat),
                           ],
                         ),
                       ),
@@ -1268,19 +1422,6 @@ class _TaskPageState extends State<TaskPage> {
               ),
             ),
           ),
-          if (open)
-            Positioned.fill(
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: SizedBox(
-                  width: width - drawerWidth,
-                  child: GestureDetector(
-                    onTap: () => setDrawer(false),
-                    child: Container(color: Colors.transparent),
-                  ),
-                ),
-              ),
-            ),
           AnimatedPositioned(
             duration: drawerDragging
                 ? Duration.zero
@@ -1600,6 +1741,20 @@ class _TaskPageState extends State<TaskPage> {
               ],
             ),
           ),
+          if (open)
+            Positioned.fill(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: SizedBox(
+                  width: width - drawerWidth,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => setDrawer(false),
+                    child: const SizedBox.expand(),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1901,6 +2056,7 @@ class _Composer extends StatelessWidget {
   const _Composer({
     required this.input,
     required this.model,
+    required this.models,
     required this.mode,
     required this.effort,
     required this.efforts,
@@ -1915,6 +2071,7 @@ class _Composer extends StatelessWidget {
   });
   final TextEditingController input;
   final String? model, effort;
+  final List<String> models;
   final String mode;
   final List<String> efforts;
   final bool running, busy;
@@ -1925,8 +2082,12 @@ class _Composer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final models = <String>[model ?? 'GPT-5.6'];
-    final selectedModel = model ?? models.first;
+    final availableModels = models.isEmpty
+        ? <String>[model ?? 'GPT-5.6']
+        : models;
+    final selectedModel = availableModels.contains(model)
+        ? model
+        : availableModels.first;
     return Padding(
       padding: const EdgeInsets.fromLTRB(13, 0, 13, 10),
       child: Container(
@@ -1962,7 +2123,7 @@ class _Composer extends StatelessWidget {
                 const SizedBox(width: 6),
                 _ComposerSelect(
                   value: selectedModel,
-                  labels: {for (final value in models) value: value},
+                  labels: {for (final value in availableModels) value: value},
                   onChanged: onModelChanged,
                 ),
                 if (efforts.isNotEmpty) ...[
