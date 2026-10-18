@@ -2093,10 +2093,11 @@ class _TaskPageState extends State<TaskPage> {
                                                                 13,
                                                               ),
                                                         ),
-                                                        child: const Icon(
-                                                          Icons.auto_awesome,
-                                                          size: 19,
-                                                          color: Colors.white,
+                                                        clipBehavior:
+                                                            Clip.antiAlias,
+                                                        child: Image.asset(
+                                                          'assets/brand/mobile_codex_logo.png',
+                                                          fit: BoxFit.cover,
                                                         ),
                                                       ),
                                                       Text(
