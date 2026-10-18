@@ -77,6 +77,10 @@ class AppLocalizations {
   String get pairingInfo => t('pairingInfo');
   String get cancel => t('cancel');
   String get pair => t('pair');
+  String get scanPairingCode => t('scanPairingCode');
+  String get scanPairingTitle => t('scanPairingTitle');
+  String get scanPairingHint => t('scanPairingHint');
+  String get cameraUnavailable => t('cameraUnavailable');
   String get taskDiff => t('taskDiff');
   String get working => t('working');
   String get viewArtifacts => t('viewArtifacts');
@@ -148,6 +152,12 @@ class AppLocalizations {
     'pairingInfo': 'Paste the pairing information from your computer',
     'cancel': 'Cancel',
     'pair': 'Pair',
+    'scanPairingCode': 'Scan QR code',
+    'scanPairingTitle': 'Scan pairing QR code',
+    'scanPairingHint':
+        'Point your camera at the QR code shown on your computer.',
+    'cameraUnavailable':
+        'Camera access is unavailable. Check camera permission and try again.',
     'taskDiff': 'Task diff',
     'working': 'Working on the task',
     'viewArtifacts': 'View artifacts',
@@ -220,6 +230,10 @@ class AppLocalizations {
     'pairingInfo': '粘贴电脑生成的配对信息',
     'cancel': '取消',
     'pair': '配对',
+    'scanPairingCode': '扫描二维码',
+    'scanPairingTitle': '扫描配对二维码',
+    'scanPairingHint': '将相机对准电脑上显示的二维码。',
+    'cameraUnavailable': '无法使用相机，请检查相机权限后重试。',
     'taskDiff': '任务差异',
     'working': '正在处理任务',
     'viewArtifacts': '查看生成文件',

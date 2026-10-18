@@ -17,6 +17,22 @@ void main() {
     expect(find.byKey(const ValueKey('navigation-menu')), findsOneWidget);
   });
 
+  testWidgets('computer pairing offers QR scanning and manual entry', (tester) async {
+    await tester.pumpWidget(const MobileCodexApp());
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Connected computer'));
+    await tester.pump(const Duration(milliseconds: 500));
+
+    expect(find.byKey(const ValueKey('scan-pairing-code')), findsOneWidget);
+    expect(find.text('Paste the pairing information from your computer'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   test('mobile pins certificate, pairs through HTTPS, calls WSS and handles revocation', () async {
     // testWidgets installs a fake HTTP client. Use a plain Dart test so this
     // checks the real native HttpClient against the Node Bridge transport.

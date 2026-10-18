@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -40,6 +41,11 @@ class MobileCodexApp extends StatelessWidget {
       ),
       dividerColor: _line,
       popupMenuTheme: const PopupMenuThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(14)),
+        ),
+        elevation: 8,
+        menuPadding: EdgeInsets.symmetric(vertical: 5),
         textStyle: TextStyle(
           color: _ink,
           fontSize: 12,
@@ -49,6 +55,18 @@ class MobileCodexApp extends StatelessWidget {
       inputDecorationTheme: const InputDecorationTheme(
         isDense: true,
         contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+          borderSide: BorderSide(color: _line),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+          borderSide: BorderSide(color: _line),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+          borderSide: BorderSide(color: _ink, width: 1.2),
+        ),
         labelStyle: TextStyle(color: _muted, fontSize: 12),
         hintStyle: TextStyle(color: _muted, fontSize: 12),
       ),
@@ -64,6 +82,20 @@ class MobileCodexApp extends StatelessWidget {
           minimumSize: const Size(0, 36),
           padding: const EdgeInsets.symmetric(horizontal: 14),
           textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(11)),
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size(0, 34),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(11)),
+          ),
+          side: const BorderSide(color: _line),
         ),
       ),
       textTheme: const TextTheme(
@@ -75,6 +107,10 @@ class MobileCodexApp extends StatelessWidget {
         labelLarge: TextStyle(fontSize: 12),
       ),
       dialogTheme: const DialogThemeData(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.all(Radius.circular(20)),
+        ),
+        insetPadding: EdgeInsets.symmetric(horizontal: 20, vertical: 24),
         titleTextStyle: TextStyle(
           color: _ink,
           fontSize: 18,
@@ -963,6 +999,7 @@ class _TaskPageState extends State<TaskPage> {
                       )
                     else if (entry.value['enum'] is List)
                       DropdownButtonFormField<String>(
+                        borderRadius: BorderRadius.circular(12),
                         decoration: InputDecoration(
                           labelText:
                               entry.value['title']?.toString() ?? entry.key,
@@ -1076,24 +1113,45 @@ class _TaskPageState extends State<TaskPage> {
     final edit = TextEditingController();
     final value = await showDialog<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(strings.connectComputer),
-        content: TextField(
-          controller: edit,
-          minLines: 5,
-          maxLines: 10,
-          decoration: InputDecoration(labelText: strings.pairingInfo),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, update) => AlertDialog(
+          title: Text(strings.connectComputer),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: edit,
+                minLines: 4,
+                maxLines: 7,
+                decoration: InputDecoration(labelText: strings.pairingInfo),
+              ),
+              const SizedBox(height: 9),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: OutlinedButton.icon(
+                  key: const ValueKey('scan-pairing-code'),
+                  onPressed: () async {
+                    final code = await scanPairingCode(strings);
+                    if (code != null) update(() => edit.text = code);
+                  },
+                  icon: const Icon(Icons.qr_code_scanner_rounded, size: 17),
+                  label: Text(strings.scanPairingCode),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text(strings.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, edit.text),
+              child: Text(strings.pair),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(strings.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, edit.text),
-            child: Text(strings.pair),
-          ),
-        ],
       ),
     );
     // Navigator.pop completes the dialog future before its route has fully
@@ -1106,6 +1164,91 @@ class _TaskPageState extends State<TaskPage> {
       final deviceName = await client.deviceLabel();
       await client.pair(value, deviceName);
     }
+  }
+
+  Future<String?> scanPairingCode(AppLocalizations strings) {
+    var didScan = false;
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(strings.scanPairingTitle),
+        content: SizedBox(
+          width: 300,
+          height: 350,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                MobileScanner(
+                  onDetect: (capture) {
+                    if (didScan) return;
+                    final value = capture.barcodes
+                        .map((barcode) => barcode.rawValue)
+                        .whereType<String>()
+                        .firstOrNull;
+                    if (value == null || value.trim().isEmpty) return;
+                    didScan = true;
+                    Navigator.pop(ctx, value.trim());
+                  },
+                  errorBuilder: (context, error) => ColoredBox(
+                    color: _ink,
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Text(
+                          strings.cameraUnavailable,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            height: 1.45,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                IgnorePointer(
+                  child: Center(
+                    child: Container(
+                      width: 218,
+                      height: 218,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(color: Colors.white, width: 2.5),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 14,
+                  right: 14,
+                  bottom: 12,
+                  child: IgnorePointer(
+                    child: Text(
+                      strings.scanPairingHint,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        shadows: [Shadow(color: Colors.black, blurRadius: 8)],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(strings.cancel),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> download(Map<String, dynamic> artifact) async {
@@ -2107,6 +2250,7 @@ class _ComposerSelect extends StatelessWidget {
           ],
           DropdownButton<String>(
             value: value,
+            borderRadius: BorderRadius.circular(12),
             hint: placeholder == null
                 ? null
                 : Text(
