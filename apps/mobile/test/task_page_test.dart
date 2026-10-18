@@ -6,10 +6,28 @@ import 'package:mobile_codex/main.dart';
 class DesktopFixture extends BridgeClient {
   final calls = <String>[];
   List<Map<String, dynamic>> fixtureProjects = [
-    {'projectId': 'workspace', 'label': 'Workspace'},
+    {'projectId': 'workspace', 'label': 'Workspace', 'branch': 'main'},
   ];
   List<Map<String, dynamic>> fixtureThreads = [];
   Map<String, dynamic>? firstTurn;
+  Map<String, dynamic> fixtureSnapshot = {
+    'id': 'snapshot-chat',
+    'title': 'Snapshot chat',
+    'turns': [
+      {
+        'id': 'turn-1',
+        'items': [
+          {'id': 'visible', 'type': 'userMessage', 'text': 'Visible request'},
+          {'id': 'empty', 'type': 'agentMessage', 'text': ''},
+          {
+            'id': 'tool',
+            'type': 'commandExecution',
+            'aggregatedOutput': 'Hidden tool output',
+          },
+        ],
+      },
+    ],
+  };
 
   @override
   Future<void> restore() async {
@@ -38,13 +56,12 @@ class DesktopFixture extends BridgeClient {
           },
         ],
       },
-      'bridge.project.list' => {
-        'projects': fixtureProjects,
-      },
+      'bridge.project.list' => {'projects': fixtureProjects},
       'bridge.thread.list' => {'threads': fixtureThreads},
       'bridge.model.list' => {
         'data': [
           {'model': 'test-model', 'isDefault': true},
+          {'model': 'second-model'},
         ],
       },
       'bridge.thread.create' => {
@@ -53,10 +70,13 @@ class DesktopFixture extends BridgeClient {
       'bridge.turn.start' => {
         'turn': {'id': 'first-turn', 'status': 'inProgress'},
       },
-      // Desktop cannot read a new thread before its first turn.
-      'bridge.thread.resume' || 'bridge.snapshot.get' => throw StateError(
-        'A new thread has no rollout yet',
-      ),
+      'bridge.thread.resume' => {},
+      'bridge.snapshot.get' => {
+        'thread': fixtureSnapshot,
+        'streamId': 'snapshot-stream',
+        'seq': 0,
+        'approvals': <dynamic>[],
+      },
       _ => throw StateError('Unexpected method $method'),
     };
     if (method == 'bridge.turn.start') firstTurn = Map.of(payload);
@@ -74,7 +94,7 @@ Future<DesktopFixture> openNewChat(
   await tester.pumpAndSettle();
   await tester.tap(find.byTooltip('Open navigation menu'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('新建聊天'));
+  await tester.tap(find.byKey(const ValueKey('new-chat')));
   await tester.pumpAndSettle();
   return client;
 }
@@ -84,7 +104,7 @@ void main() {
     'new chat opens without resume/read and can start its first turn',
     (tester) async {
       final client = await openNewChat(tester);
-      expect(find.text('新聊天'), findsOneWidget);
+      expect(find.text('Workspace/New chat'), findsOneWidget);
       expect(find.byType(TextField), findsOneWidget);
       expect(
         client.calls.where((m) => m == 'bridge.thread.create'),
@@ -93,13 +113,13 @@ void main() {
       expect(client.calls, isNot(contains('bridge.thread.resume')));
       expect(client.calls, isNot(contains('bridge.snapshot.get')));
 
-      await tester.tap(find.byTooltip('刷新'));
+      await tester.tap(find.byTooltip('Refresh'));
       await tester.pumpAndSettle();
       expect(client.calls, isNot(contains('bridge.snapshot.get')));
       expect(tester.takeException(), isNull);
 
       await tester.enterText(find.byType(TextField), 'first message');
-      await tester.tap(find.byTooltip('发送'));
+      await tester.tap(find.byTooltip('Send'));
       await tester.pump(const Duration(milliseconds: 100));
       expect(client.firstTurn?['threadId'], 'new-thread');
       expect(client.firstTurn?['input'][0]['text'], 'first message');
@@ -132,6 +152,36 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('composer exposes every model advertised by the bridge', (
+    tester,
+  ) async {
+    await openNewChat(tester);
+    await tester.tap(find.byKey(const ValueKey('model-select')));
+    await tester.pumpAndSettle();
+    expect(find.text('second-model'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('composer shows project context and fits a narrow screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await openNewChat(tester);
+
+    expect(find.text('Workspace'), findsOneWidget);
+    expect(find.text('Local'), findsOneWidget);
+    expect(find.text('main'), findsOneWidget);
+    expect(find.byKey(const ValueKey('model-select')), findsOneWidget);
+    expect(find.byTooltip('Send'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('session menu groups projects, recent chats and pinned chats', (
     tester,
   ) async {
@@ -141,9 +191,42 @@ void main() {
         {'projectId': 'beta', 'label': 'Project Beta'},
       ]
       ..fixtureThreads = [
-        {'id': 'alpha-chat', 'title': 'Alpha chat', 'projectId': 'alpha'},
-        {'id': 'beta-chat', 'title': 'Beta chat', 'projectId': 'beta'},
-        {'id': 'recent-chat', 'title': 'Recent chat'},
+        {
+          'id': 'alpha-chat',
+          'title': 'Alpha chat',
+          'preview': 'Alpha request',
+          'projectId': 'alpha',
+        },
+        {
+          'id': 'beta-chat',
+          'title': 'Beta chat',
+          'preview': 'Beta request',
+          'projectId': 'beta',
+        },
+        {
+          'id': 'recent-chat',
+          'title': 'Recent chat',
+          'preview': 'Recent request',
+        },
+        {
+          'id': 'pinned-chat',
+          'title': 'Pinned chat',
+          'preview': 'Pinned request',
+          'projectId': 'beta',
+          'pinned': true,
+        },
+        {
+          'id': 'empty-chat',
+          'title': 'Empty chat',
+          'turns': [
+            {
+              'items': [
+                {'type': 'agentMessage', 'text': ''},
+                {'type': 'commandExecution', 'aggregatedOutput': 'hidden'},
+              ],
+            },
+          ],
+        },
       ];
     addTearDown(fixture.dispose);
     await tester.pumpWidget(MaterialApp(home: TaskPage(client: fixture)));
@@ -151,15 +234,16 @@ void main() {
     await tester.tap(find.byTooltip('Open navigation menu'));
     await tester.pumpAndSettle();
 
-    expect(find.text('置顶'), findsOneWidget);
-    expect(find.text('项目'), findsOneWidget);
-    expect(find.text('最近'), findsOneWidget);
+    expect(find.text('PINNED'), findsOneWidget);
+    expect(find.text('PROJECTS'), findsOneWidget);
+    expect(find.text('CONVERSATIONS'), findsOneWidget);
     expect(find.text('Recent chat'), findsOneWidget);
+    expect(find.text('Pinned chat'), findsOneWidget);
+    expect(find.text('Empty chat'), findsNothing);
     expect(find.text('Alpha chat'), findsNothing);
+    expect(find.textContaining('now'), findsNothing);
 
-    await tester.tap(
-      find.byKey(const PageStorageKey('project-alpha')),
-    );
+    await tester.tap(find.byKey(const PageStorageKey('project-alpha')));
     await tester.pumpAndSettle();
     expect(find.text('Alpha chat'), findsOneWidget);
     expect(find.text('Beta chat'), findsNothing);
@@ -170,6 +254,52 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('thread-alpha-chat')), findsOneWidget);
     expect(find.text('Alpha chat'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('timeline omits empty rows and synthetic now timestamps', (
+    tester,
+  ) async {
+    final fixture = DesktopFixture()
+      ..fixtureThreads = [
+        {
+          'id': 'snapshot-chat',
+          'title': 'Snapshot chat',
+          'preview': 'Visible request',
+        },
+      ];
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(MaterialApp(home: TaskPage(client: fixture)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Snapshot chat'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Visible request'), findsOneWidget);
+    expect(find.text('Hidden tool output'), findsNothing);
+    expect(find.textContaining('now'), findsNothing);
+    expect(find.text('Codex · now'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('empty titles without message content are omitted from chats', (
+    tester,
+  ) async {
+    final fixture = DesktopFixture()
+      ..fixtureThreads = [
+        {'id': 'empty', 'title': 'Generated title only'},
+      ];
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(MaterialApp(home: TaskPage(client: fixture)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Generated title only'), findsNothing);
+    expect(find.text('No conversations'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });

@@ -60,7 +60,7 @@ if (args.includes('--frida')) {
   const discovered = pid ? undefined : await discoverDesktop();
   const desktopPid = pid ? Number(pid) : (discovered as any).desktop?.[0]?.ProcessId;
   if (!Number.isInteger(desktopPid) || desktopPid < 1) throw new Error('--frida could not find a Desktop Main PID; pass --pid PID');
-  fridaBackend = new FridaBackend({ workspace: resolve(workspace), pid: desktopPid, python: process.env.MOBILE_CODEX_FRIDA_PYTHON, deps: process.env.MOBILE_CODEX_FRIDA_DEPS, allowControl: args.includes('--allow-control'), settingsUi: { endpoint: `http://127.0.0.1:${adminPort}`, token: uiSession }, projectProvider: async () => toolsBackend ? await toolsBackend.call('bridge.project.list', {}) : { projects: [] }, settingsRequest: async (action, payload) => {
+  fridaBackend = new FridaBackend({ workspace: resolve(workspace), pid: desktopPid, python: process.env.MOBILE_CODEX_FRIDA_PYTHON, deps: process.env.MOBILE_CODEX_FRIDA_DEPS, allowControl: args.includes('--allow-control'), settingsUi: { endpoint: `http://127.0.0.1:${adminPort}`, token: uiSession }, projectProvider: async () => toolsBackend ? await toolsBackend.call('bridge.project.list', {}) : { projects: [] }, threadProvider: async (params) => toolsBackend ? await toolsBackend.call('bridge.thread.list', params ?? {}) : { threads: [] }, settingsRequest: async (action, payload) => {
     if (action === 'status') return uiStatus?.() ?? bridge.uiStatus();
     if (action === 'pairing') return await pairingPayload();
     if (action === 'revoke') { if (!devices || typeof payload.deviceId !== 'string') throw new Error('deviceId is required'); await devices.revoke(payload.deviceId); return { revoked: true }; }

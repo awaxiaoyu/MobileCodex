@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mobile_codex/bridge_client.dart';
@@ -12,7 +14,7 @@ void main() {
   testWidgets('unpaired mobile displays connection and task entry', (tester) async {
     await tester.pumpWidget(const MobileCodexApp()); await tester.pump();
     expect(find.text('Mobile Codex'), findsOneWidget);
-    expect(find.text('打开聊天列表'), findsOneWidget);
+    expect(find.byKey(const ValueKey('navigation-menu')), findsOneWidget);
   });
 
   test('mobile pins certificate, pairs through HTTPS, calls WSS and handles revocation', () async {
@@ -30,7 +32,7 @@ void main() {
       final wrong = {...pairing, 'fingerprint': List.filled(64, '0').join()};
       await expectLater(client.pair(jsonEncode(wrong), 'wrong-pin'), throwsA(anything));
       final ready = Completer<void>();
-      final subscription = client.events.stream.listen((e) { if (e['method'] == 'event.connection.ready' && !ready.isCompleted) ready.complete(); });
+      final subscription = client.events.stream.listen((e) { if (e['method'] == 'event.connection.ready' && !ready.isCompleted) { ready.complete(); } });
       await client.pair(jsonEncode(pairing), 'test-phone'); await ready.future.timeout(const Duration(seconds: 5));
       final result = await client.rpc('bridge.backends.list', {});
       expect(result['payload']['backends'], isEmpty);

@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'app_localizations.dart';
 import 'bridge_client.dart';
 
 const _ink = Color(0xff151515);
@@ -83,6 +85,13 @@ class MobileCodexApp extends StatelessWidget {
       useMaterial3: true,
     ),
     home: const TaskPage(),
+    supportedLocales: AppLocalizations.supportedLocales,
+    localizationsDelegates: const [
+      AppLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
   );
 }
 
@@ -174,6 +183,7 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Future<void> togglePinned(Map<String, dynamic> chat) async {
+    final strings = AppLocalizations.of(context);
     await pinnedLoad;
     final id = chat['id'] as String;
     setState(() {
@@ -183,7 +193,7 @@ class _TaskPageState extends State<TaskPage> {
         pinnedThreadIds.add(id);
         pinnedThreadSummaries[id] = {
           'id': id,
-          'title': chat['title']?.toString() ?? '聊天',
+          'title': chat['title']?.toString() ?? strings.chat,
           if (chat['projectId'] is String) 'projectId': chat['projectId'],
         };
       }
@@ -199,45 +209,70 @@ class _TaskPageState extends State<TaskPage> {
     return project?['label']?.toString() ?? '';
   }
 
+  String projectBranch(String? projectId) {
+    if (projectId == null) return '';
+    final project = projects
+        .where((p) => p['projectId'] == projectId)
+        .firstOrNull;
+    return project?['branch']?.toString() ?? '';
+  }
+
   String chatTitle(Map<String, dynamic> chat) {
+    final strings = AppLocalizations.of(context);
     final title = chat['title']?.toString().trim();
-    final name = title == null || title.isEmpty ? 'Untitled chat' : title;
+    final name = title == null || title.isEmpty
+        ? strings.untitledChat
+        : isNewChatTitle(title)
+        ? strings.newChat
+        : title;
     final project = projectLabel(chat['projectId'] as String?);
     return project.isEmpty ? name : '$project/$name';
   }
 
-  String chatMeta(Map<String, dynamic> chat) {
-    return chat['mode']?.toString().toLowerCase() == 'plan'
-        ? 'Plan'
-        : 'Default';
+  String chatName(Map<String, dynamic> chat, AppLocalizations strings) {
+    final title = chat['title']?.toString().trim();
+    if (title == null || title.isEmpty) return strings.untitledChat;
+    return isNewChatTitle(title) ? strings.newChat : title;
   }
 
-  bool _hasVisibleItemContent(Object? value) {
-    if (value is String) return value.trim().isNotEmpty;
-    if (value is Map) {
-      for (final key in const [
-        'text',
-        'content',
-        'items',
-        'summary',
-        'message',
-        'aggregatedOutput',
-      ]) {
-        if (_hasVisibleItemContent(value[key])) return true;
-      }
-    }
-    if (value is Iterable) return value.any(_hasVisibleItemContent);
-    return false;
+  bool isNewChatTitle(String title) =>
+      const {'新聊天', 'New chat', 'Untitled chat', 'Untitled'}.contains(title);
+
+  String chatMeta(Map<String, dynamic> chat, AppLocalizations strings) {
+    return chat['mode']?.toString().toLowerCase() == 'plan'
+        ? strings.planMode
+        : strings.defaultMode;
+  }
+
+  String localizedConnectionStatus(AppLocalizations strings) {
+    final status = client.status;
+    if (status == '已连接') return strings.connected;
+    if (status == '连接中') return strings.connecting;
+    if (status == '连接中断') return strings.disconnected;
+    if (status == '未连接') return strings.notConnected;
+    if (status == '设备已撤销，请重新配对') return strings.deviceRevoked;
+    if (status.startsWith('连接失败')) return strings.connectionFailed;
+    return status;
   }
 
   bool hasThreadContent(Map<String, dynamic> chat) {
     if (newThreads.contains(chat['id'])) return false;
     final turns = chat['turns'];
-    if (turns is List && turns.any(_hasVisibleItemContent)) return true;
+    if (turns is List) {
+      return turns.any((turn) {
+        if (turn is! Map) return false;
+        final items = turn['items'];
+        if (items is! List) return false;
+        return items.any(
+          (item) =>
+              item is Map &&
+              isVisibleTimelineItem(Map<String, dynamic>.from(item)),
+        );
+      });
+    }
     for (final key in const [
       'preview',
-      'name',
-      'title',
+      'summary',
       'firstUserMessage',
       'lastMessage',
     ]) {
@@ -253,7 +288,37 @@ class _TaskPageState extends State<TaskPage> {
         return true;
       }
     }
-    return false;
+    final title = chat['title']?.toString().trim();
+    return (pinnedThreadIds.contains(chat['id']) || isRemotePinned(chat)) &&
+        title != null &&
+        title.isNotEmpty &&
+        !isNewChatTitle(title);
+  }
+
+  bool isRemotePinned(Map<String, dynamic> chat) =>
+      chat['pinned'] == true ||
+      chat['isPinned'] == true ||
+      chat['pinnedSummary'] == true;
+
+  String? itemText(Map<String, dynamic> item) {
+    final direct = item['text']?.toString().trim();
+    if (direct != null && direct.isNotEmpty) return direct;
+    final content = item['content'];
+    if (content is List) {
+      final text = content
+          .whereType<Map>()
+          .map((part) => part['text']?.toString() ?? '')
+          .where((part) => part.trim().isNotEmpty)
+          .join('\n')
+          .trim();
+      if (text.isNotEmpty) return text;
+    }
+    return null;
+  }
+
+  bool isVisibleTimelineItem(Map<String, dynamic> item) {
+    const visibleTypes = {'userMessage', 'agentMessage', 'plan'};
+    return visibleTypes.contains(item['type']) && itemText(item) != null;
   }
 
   void setDrawer(bool open, {bool animate = true}) {
@@ -272,7 +337,7 @@ class _TaskPageState extends State<TaskPage> {
 
   Widget menuButton() => IconButton(
     key: const ValueKey('navigation-menu'),
-    tooltip: 'Open navigation menu',
+    tooltip: AppLocalizations.of(context).openMenu,
     onPressed: () => setDrawer(drawerPosition == 0),
     icon: const Icon(Icons.menu_rounded, size: 19),
     style: IconButton.styleFrom(
@@ -286,11 +351,7 @@ class _TaskPageState extends State<TaskPage> {
     ),
   );
 
-  Widget sectionLabel(
-    String title, {
-    String? alias,
-    List<String> aliases = const [],
-  }) => Padding(
+  Widget sectionLabel(String title) => Padding(
     padding: const EdgeInsets.only(left: 2, bottom: 8),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,29 +365,11 @@ class _TaskPageState extends State<TaskPage> {
             letterSpacing: 1.2,
           ),
         ),
-        if (alias != null)
-          Text(
-            alias,
-            style: const TextStyle(
-              fontSize: 1,
-              height: .1,
-              color: Colors.transparent,
-            ),
-          ),
-        for (final value in aliases)
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 1,
-              height: .1,
-              color: Colors.transparent,
-            ),
-          ),
       ],
     ),
   );
 
-  Widget threadTile(Map<String, dynamic> chat) {
+  Widget threadTile(Map<String, dynamic> chat, AppLocalizations strings) {
     final id = chat['id'] as String;
     final pinned = pinnedThreadIds.contains(id);
     return Material(
@@ -359,7 +402,7 @@ class _TaskPageState extends State<TaskPage> {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          chatTitle(chat),
+                          chatName(chat, strings),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -369,7 +412,7 @@ class _TaskPageState extends State<TaskPage> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          chatMeta(chat),
+                          chatMeta(chat, strings),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontSize: 9, color: _muted),
@@ -380,17 +423,6 @@ class _TaskPageState extends State<TaskPage> {
                   const SizedBox(width: 8),
                 ],
               ),
-              if (legacyExpandedProjectId != null &&
-                  chat['projectId'] == legacyExpandedProjectId &&
-                  chatTitle(chat) != (chat['title']?.toString() ?? '聊天'))
-                Positioned(
-                  left: 0,
-                  top: 0,
-                  child: Opacity(
-                    opacity: 0,
-                    child: Text(chat['title']?.toString() ?? '聊天'),
-                  ),
-                ),
               Positioned(
                 top: 0,
                 right: 0,
@@ -398,14 +430,14 @@ class _TaskPageState extends State<TaskPage> {
                   opacity: 0,
                   child: PopupMenuButton<String>(
                     key: ValueKey('thread-actions-$id'),
-                    tooltip: 'Chat actions',
+                    tooltip: strings.chatActions,
                     icon: const Icon(Icons.more_horiz, size: 18),
                     onSelected: (_) => togglePinned(chat),
                     itemBuilder: (context) => [
                       PopupMenuItem(
                         key: ValueKey('pin-thread-$id'),
                         value: 'pin',
-                        child: Text(pinned ? 'Unpin' : 'Pin'),
+                        child: Text(pinned ? strings.unpin : strings.pin),
                       ),
                     ],
                   ),
@@ -464,6 +496,7 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Future<void> load() async {
+    final strings = AppLocalizations.of(context);
     final result = await client.rpc('bridge.backends.list', {});
     final backends = result['payload']['backends'] as List;
     final shared = backends
@@ -472,7 +505,7 @@ class _TaskPageState extends State<TaskPage> {
         )
         .firstOrNull;
     if (shared == null) {
-      setNotice('电脑 Bridge 尚未连接 Codex Desktop');
+      setNotice(strings.computerDisconnected);
       return;
     }
     if (backend?['id'] != shared['id'] ||
@@ -484,11 +517,15 @@ class _TaskPageState extends State<TaskPage> {
     }
     backend = Map<String, dynamic>.from(shared);
     final catalogProjects = await call('bridge.project.list', {});
-    projects = (catalogProjects['payload']['projects'] as List)
+    final projectData = catalogProjects['payload']['projects'];
+    projects = (projectData is List ? projectData : const [])
+        .whereType<Map>()
         .map(
           (p) => {
             'projectId': p['projectId'] ?? p['id'],
             'label': p['label'] ?? p['name'] ?? p['projectId'] ?? p['id'],
+            if (p['branch'] != null || p['branchName'] != null)
+              'branch': p['branch'] ?? p['branchName'],
           },
         )
         .where((p) => p['projectId'] is String)
@@ -506,6 +543,15 @@ class _TaskPageState extends State<TaskPage> {
               .where(hasThreadContent)
               .toList()
         : <dynamic>[];
+    for (final value in threads) {
+      final id = value is Map<String, dynamic> ? value['id'] : null;
+      if (id is String &&
+          value is Map<String, dynamic> &&
+          isRemotePinned(value)) {
+        pinnedThreadIds.add(id);
+        pinnedThreadSummaries[id] = value;
+      }
+    }
     final catalog = await call('bridge.model.list', {'limit': 100});
     final modelData = catalog['payload']['data'];
     models = modelData is List
@@ -676,13 +722,14 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Future<void> createThread() async {
+    final strings = AppLocalizations.of(context);
     final created = await call('bridge.thread.create', {
       'projectId': projectId,
     });
     final selected = Map<String, dynamic>.from(created['payload']['thread']);
     selected['projectId'] = projectId;
     if ((selected['title'] as String? ?? '').isEmpty) {
-      selected['title'] = '新聊天';
+      selected['title'] = strings.newChat;
     }
     input.clear();
     mode = 'plan';
@@ -705,6 +752,7 @@ class _TaskPageState extends State<TaskPage> {
   Future<void> send() async {
     final text = input.text.trim();
     if (text.isEmpty) return;
+    final strings = AppLocalizations.of(context);
     final submittedText = text;
     if (thread == null) await createThread();
     if (thread == null) return;
@@ -732,7 +780,9 @@ class _TaskPageState extends State<TaskPage> {
     turnId = result['payload']['turn']?['id'] as String? ?? turnId;
     newThreads.remove(thread!['id']);
     final currentTitle = thread!['title']?.toString().trim();
-    if (currentTitle == null || currentTitle.isEmpty || currentTitle == '新聊天') {
+    if (currentTitle == null ||
+        currentTitle.isEmpty ||
+        isNewChatTitle(currentTitle)) {
       thread!['title'] = submittedText.length > 80
           ? '${submittedText.substring(0, 80)}…'
           : submittedText;
@@ -740,10 +790,11 @@ class _TaskPageState extends State<TaskPage> {
     rememberThread(thread!);
     running = true;
     input.clear();
-    setNotice('任务已提交');
+    setNotice(strings.taskSubmitted);
   }
 
   Future<void> respond(Map<String, dynamic> request) async {
+    final strings = AppLocalizations.of(context);
     final method = request['method'] as String,
         p = Map<String, dynamic>.from(request['payload']);
     Map<String, dynamic>? result;
@@ -767,18 +818,18 @@ class _TaskPageState extends State<TaskPage> {
                   ),
                 TextField(
                   controller: text,
-                  decoration: const InputDecoration(labelText: '自己的回答'),
+                  decoration: InputDecoration(labelText: strings.ownAnswer),
                 ),
               ],
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('稍后'),
+                child: Text(strings.later),
               ),
               FilledButton(
                 onPressed: () => Navigator.pop(ctx, text.text),
-                child: const Text('提交'),
+                child: Text(strings.submit),
               ),
             ],
           ),
@@ -795,7 +846,7 @@ class _TaskPageState extends State<TaskPage> {
       final decision = await showDialog<String>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('任务需要审批'),
+          title: Text(strings.approvalRequired),
           content: SingleChildScrollView(
             child: SelectableText(
               const JsonEncoder.withIndent('  ').convert(p),
@@ -804,11 +855,11 @@ class _TaskPageState extends State<TaskPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, 'decline'),
-              child: const Text('拒绝'),
+              child: Text(strings.decline),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, 'accept'),
-              child: const Text('允许这次'),
+              child: Text(strings.allowThisTime),
             ),
           ],
         ),
@@ -818,7 +869,7 @@ class _TaskPageState extends State<TaskPage> {
       final accept = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('额外权限'),
+          title: Text(strings.additionalPermissions),
           content: SingleChildScrollView(
             child: SelectableText(
               const JsonEncoder.withIndent('  ').convert(p),
@@ -827,11 +878,11 @@ class _TaskPageState extends State<TaskPage> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('拒绝'),
+              child: Text(strings.decline),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('允许当前任务'),
+              child: Text(strings.allowCurrentTask),
             ),
           ],
         ),
@@ -854,7 +905,7 @@ class _TaskPageState extends State<TaskPage> {
               'boolean',
             ].contains(field['type']),
           )) {
-        setNotice('此授权或表单请到电脑完成');
+        setNotice(strings.unsupportedApproval);
         return;
       }
       final required = schema?['required'] as List? ?? [];
@@ -871,7 +922,7 @@ class _TaskPageState extends State<TaskPage> {
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, update) => AlertDialog(
-            title: Text(p['message']?.toString() ?? '任务需要填写信息'),
+            title: Text(p['message']?.toString() ?? strings.formRequired),
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -923,7 +974,7 @@ class _TaskPageState extends State<TaskPage> {
               TextButton(
                 onPressed: () =>
                     Navigator.pop(ctx, <String, dynamic>{'action': 'decline'}),
-                child: const Text('拒绝'),
+                child: Text(strings.decline),
               ),
               FilledButton(
                 onPressed: () {
@@ -936,8 +987,13 @@ class _TaskPageState extends State<TaskPage> {
                     final text = controls[entry.key]!.text.trim();
                     if (text.isEmpty && required.contains(entry.key)) {
                       update(
-                        () => formError =
-                            '请填写 ${entry.value['title'] ?? entry.key}',
+                        () => formError = strings.t(
+                          'fillAnswer',
+                          args: {
+                            'field': (entry.value['title'] ?? entry.key)
+                                .toString(),
+                          },
+                        ),
                       );
                       return;
                     }
@@ -949,8 +1005,13 @@ class _TaskPageState extends State<TaskPage> {
                         : text;
                     if (value == null) {
                       update(
-                        () => formError =
-                            '${entry.value['title'] ?? entry.key} 需要数字',
+                        () => formError = strings.t(
+                          'invalidNumber',
+                          args: {
+                            'field': (entry.value['title'] ?? entry.key)
+                                .toString(),
+                          },
+                        ),
                       );
                       return;
                     }
@@ -961,7 +1022,7 @@ class _TaskPageState extends State<TaskPage> {
                     'content': content,
                   });
                 },
-                child: const Text('提交'),
+                child: Text(strings.submit),
               ),
             ],
           ),
@@ -971,7 +1032,7 @@ class _TaskPageState extends State<TaskPage> {
         control.dispose();
       }
     } else {
-      setNotice('此交互请到电脑完成，手机表单尚未适配');
+      setNotice(strings.unsupportedInteraction);
       return;
     }
     if (result != null) {
@@ -987,25 +1048,26 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Future<void> pair() async {
+    final strings = AppLocalizations.of(context);
     final edit = TextEditingController();
     final value = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('连接电脑'),
+        title: Text(strings.connectComputer),
         content: TextField(
           controller: edit,
           minLines: 5,
           maxLines: 10,
-          decoration: const InputDecoration(labelText: '粘贴电脑生成的配对信息'),
+          decoration: InputDecoration(labelText: strings.pairingInfo),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
+            child: Text(strings.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, edit.text),
-            child: const Text('配对'),
+            child: Text(strings.pair),
           ),
         ],
       ),
@@ -1035,6 +1097,7 @@ class _TaskPageState extends State<TaskPage> {
 
   @override
   Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
     final selectedModel = models
         .whereType<Map>()
         .where((m) => m['model'] == model || m['id'] == model)
@@ -1042,9 +1105,12 @@ class _TaskPageState extends State<TaskPage> {
     final efforts = (selectedModel?['supportedReasoningEfforts'] as List? ?? [])
         .map((e) => e['reasoningEffort'] as String)
         .toList();
-    final items = [
+    final items = <Map<String, dynamic>>[
       for (final turn in thread?['turns'] as List? ?? [])
-        ...(turn['items'] as List),
+        for (final item in turn['items'] as List? ?? [])
+          if (item is Map &&
+              isVisibleTimelineItem(Map<String, dynamic>.from(item)))
+            Map<String, dynamic>.from(item),
     ];
     final threadsById = {
       for (final value in threads)
@@ -1078,10 +1144,15 @@ class _TaskPageState extends State<TaskPage> {
     final open = drawerPosition > 0;
     final title = thread == null ? 'Mobile Codex' : chatTitle(thread!);
     final statusLabel = running
-        ? 'Running · ${turnId == null ? 'now' : 'active'}'
-        : client.status;
+        ? strings.running
+        : localizedConnectionStatus(strings);
+    final composerProjectId = thread?['projectId'] as String? ?? projectId;
     final composer = _Composer(
       input: input,
+      strings: strings,
+      projectLabel: projectLabel(composerProjectId),
+      branchLabel: projectBranch(composerProjectId),
+      locationLabel: client.status == '已连接' ? strings.local : null,
       model: model,
       models: modelOptions,
       mode: mode,
@@ -1089,9 +1160,7 @@ class _TaskPageState extends State<TaskPage> {
       efforts: efforts,
       running: running,
       busy: busy,
-      hintText: thread == null
-          ? 'Message Codex…'
-          : 'Add direction to this task…',
+      hintText: thread == null ? strings.messageCodex : strings.addDirection,
       onSend: () => action(send),
       onStop: running
           ? () => action(() async {
@@ -1114,23 +1183,18 @@ class _TaskPageState extends State<TaskPage> {
           key: ValueKey(item['id']),
           child: _TimelineItem(
             isUser: item['type'] == 'userMessage',
-            label: item['type'] == 'userMessage' ? 'You · now' : 'Codex · now',
-            child: MarkdownBody(
-              selectable: true,
-              data:
-                  item['text']?.toString() ??
-                  (item['content'] as List? ?? [])
-                      .map((c) => c['text'])
-                      .join('\n'),
-            ),
+            label: item['type'] == 'userMessage'
+                ? strings.you
+                : strings.assistant,
+            child: MarkdownBody(selectable: true, data: itemText(item)!),
           ),
         ),
       if (diff.isNotEmpty)
         _TimelineItem(
           child: ExpansionTile(
             tilePadding: EdgeInsets.zero,
-            title: const Text(
-              'Task diff',
+            title: Text(
+              strings.taskDiff,
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
             children: [
@@ -1145,11 +1209,11 @@ class _TaskPageState extends State<TaskPage> {
           ),
         ),
       if (running)
-        const _TimelineItem(
+        _TimelineItem(
           active: true,
           child: Text(
-            'Working on the task',
-            style: TextStyle(fontSize: 13, color: Color(0xff4b9b67)),
+            strings.working,
+            style: const TextStyle(fontSize: 13, color: Color(0xff4b9b67)),
           ),
         ),
       if (!running && thread != null)
@@ -1162,7 +1226,7 @@ class _TaskPageState extends State<TaskPage> {
             refresh();
           }),
           icon: const Icon(Icons.attach_file, size: 16),
-          label: const Text('View artifacts'),
+          label: Text(strings.viewArtifacts),
         ),
       for (final artifact in artifacts)
         ListTile(
@@ -1210,8 +1274,8 @@ class _TaskPageState extends State<TaskPage> {
                     children: [
                       Row(
                         children: [
-                          const Text(
-                            'Chats',
+                          Text(
+                            strings.chats,
                             style: TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.w700,
@@ -1226,10 +1290,10 @@ class _TaskPageState extends State<TaskPage> {
                         child: ListView(
                           padding: EdgeInsets.zero,
                           children: [
-                            sectionLabel('Pinned', alias: '置顶'),
+                            sectionLabel(strings.pinned),
                             if (pinnedThreads.isEmpty)
-                              const Text(
-                                'No pinned chats',
+                              Text(
+                                strings.noPinnedChats,
                                 style: TextStyle(
                                   color: Color(0xff999999),
                                   fontSize: 12,
@@ -1237,12 +1301,12 @@ class _TaskPageState extends State<TaskPage> {
                               )
                             else
                               for (final chat in pinnedThreads)
-                                threadTile(chat),
+                                threadTile(chat, strings),
                             const SizedBox(height: 18),
-                            sectionLabel('Projects', alias: '项目'),
+                            sectionLabel(strings.projects),
                             if (projectChats.isEmpty)
-                              const Text(
-                                'No project chats',
+                              Text(
+                                strings.noProjectChats,
                                 style: TextStyle(
                                   color: Color(0xff999999),
                                   fontSize: 12,
@@ -1320,17 +1384,13 @@ class _TaskPageState extends State<TaskPage> {
                                 ),
                                 if (legacyExpandedProjectId == projectId)
                                   for (final chat in projectChats[projectId]!)
-                                    threadTile(chat),
+                                    threadTile(chat, strings),
                               ],
                             const SizedBox(height: 18),
-                            sectionLabel(
-                              'Conversations',
-                              alias: '对话',
-                              aliases: const ['最近'],
-                            ),
+                            sectionLabel(strings.conversations),
                             if (conversationThreads.isEmpty)
-                              const Text(
-                                'No conversations',
+                              Text(
+                                strings.noConversations,
                                 style: TextStyle(
                                   color: Color(0xff999999),
                                   fontSize: 12,
@@ -1338,7 +1398,7 @@ class _TaskPageState extends State<TaskPage> {
                               )
                             else
                               for (final chat in conversationThreads)
-                                threadTile(chat),
+                                threadTile(chat, strings),
                           ],
                         ),
                       ),
@@ -1353,13 +1413,7 @@ class _TaskPageState extends State<TaskPage> {
                                     action(createThread);
                                   },
                             icon: const Icon(Icons.edit_outlined, size: 15),
-                            label: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text('Chat'),
-                                Opacity(opacity: 0, child: Text('新建聊天')),
-                              ],
-                            ),
+                            label: Text(strings.chat),
                             style: FilledButton.styleFrom(
                               minimumSize: const Size(108, 40),
                               padding: const EdgeInsets.symmetric(
@@ -1374,11 +1428,11 @@ class _TaskPageState extends State<TaskPage> {
                           ),
                           const Spacer(),
                           IconButton(
-                            tooltip: 'Settings',
+                            tooltip: strings.settings,
                             onPressed: () => showDialog<void>(
                               context: context,
                               builder: (ctx) => AlertDialog(
-                                title: const Text('Settings'),
+                                title: Text(strings.settings),
                                 content: Column(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
@@ -1386,8 +1440,10 @@ class _TaskPageState extends State<TaskPage> {
                                       leading: const Icon(
                                         Icons.computer_outlined,
                                       ),
-                                      title: const Text('Connected computer'),
-                                      subtitle: Text(client.status),
+                                      title: Text(strings.connectedComputer),
+                                      subtitle: Text(
+                                        localizedConnectionStatus(strings),
+                                      ),
                                       onTap: () {
                                         Navigator.pop(ctx);
                                         action(pair);
@@ -1395,7 +1451,7 @@ class _TaskPageState extends State<TaskPage> {
                                     ),
                                     ListTile(
                                       leading: const Icon(Icons.tune_rounded),
-                                      title: const Text('Preferences'),
+                                      title: Text(strings.preferences),
                                       trailing: const Icon(Icons.chevron_right),
                                     ),
                                   ],
@@ -1481,7 +1537,7 @@ class _TaskPageState extends State<TaskPage> {
                                       const SizedBox(width: 12),
                                       if (thread != null) ...[
                                         IconButton(
-                                          tooltip: '刷新',
+                                          tooltip: strings.refresh,
                                           onPressed: () => action(load),
                                           icon: const Icon(
                                             Icons.refresh_rounded,
@@ -1521,20 +1577,15 @@ class _TaskPageState extends State<TaskPage> {
                                       const SizedBox(width: 6),
                                       Text(
                                         client.status == '已连接'
-                                            ? 'Connected'
-                                            : client.status,
+                                            ? strings.connected
+                                            : localizedConnectionStatus(
+                                                strings,
+                                              ),
                                         style: const TextStyle(
                                           fontSize: 10,
                                           color: _muted,
                                         ),
                                       ),
-                                      if (thread?['title'] == '新聊天')
-                                        const SizedBox.shrink(
-                                          child: Opacity(
-                                            opacity: 0,
-                                            child: Text('新聊天'),
-                                          ),
-                                        ),
                                     ],
                                   ),
                                 ),
@@ -1601,8 +1652,8 @@ class _TaskPageState extends State<TaskPage> {
                                                           color: Colors.white,
                                                         ),
                                                       ),
-                                                      const Text(
-                                                        'What are we building today?',
+                                                      Text(
+                                                        strings.welcomeTitle,
                                                         style: TextStyle(
                                                           fontSize: 22,
                                                           fontWeight:
@@ -1616,8 +1667,12 @@ class _TaskPageState extends State<TaskPage> {
                                                       ),
                                                       Text(
                                                         client.status == '已连接'
-                                                            ? 'Start a task with your connected workspace. Codex will keep the work moving while you stay in control.'
-                                                            : 'Connect a computer to get started',
+                                                            ? strings.t(
+                                                                'welcomeConnected',
+                                                              )
+                                                            : strings.t(
+                                                                'welcomeDisconnected',
+                                                              ),
                                                         style: const TextStyle(
                                                           color: _muted,
                                                           fontSize: 12,
@@ -1633,27 +1688,23 @@ class _TaskPageState extends State<TaskPage> {
                                                         index++
                                                       )
                                                         _SuggestionRow(
-                                                          label: const [
-                                                            'Review a diff',
-                                                            'Plan a feature',
-                                                            'Fix a bug',
+                                                          label: [
+                                                            strings.reviewDiff,
+                                                            strings.planFeature,
+                                                            strings.fixBug,
                                                           ][index],
                                                           isFirst: index == 0,
                                                           onTap: () {
-                                                            input.text = const [
-                                                              'Review a diff',
-                                                              'Plan a feature',
-                                                              'Fix a bug',
+                                                            input.text = [
+                                                              strings
+                                                                  .reviewDiff,
+                                                              strings
+                                                                  .planFeature,
+                                                              strings.fixBug,
                                                             ][index];
                                                             setDrawer(false);
                                                           },
                                                         ),
-                                                      const SizedBox.shrink(
-                                                        child: Opacity(
-                                                          opacity: 0,
-                                                          child: Text('打开聊天列表'),
-                                                        ),
-                                                      ),
                                                     ],
                                                   ),
                                                 ),
@@ -1699,13 +1750,14 @@ class _TaskPageState extends State<TaskPage> {
                                                         ),
                                                       );
                                                     }),
-                                                child: const Text(
-                                                  'Check the previous request result',
+                                                child: Text(
+                                                  strings.checkRequestResult,
                                                 ),
                                               ),
                                             for (final request
                                                 in approvals.values)
                                               _ApprovalRow(
+                                                strings: strings,
                                                 request: request,
                                                 onTap: () => action(
                                                   () => respond(request),
@@ -1944,7 +1996,12 @@ class _TimelineItem extends StatelessWidget {
 }
 
 class _ApprovalRow extends StatelessWidget {
-  const _ApprovalRow({required this.request, required this.onTap});
+  const _ApprovalRow({
+    required this.strings,
+    required this.request,
+    required this.onTap,
+  });
+  final AppLocalizations strings;
   final Map<String, dynamic> request;
   final VoidCallback onTap;
 
@@ -1968,8 +2025,8 @@ class _ApprovalRow extends StatelessWidget {
               Expanded(
                 child: Text(
                   request['method'] == 'item/tool/requestUserInput'
-                      ? 'Input needed to continue'
-                      : 'Approval needed to continue',
+                      ? strings.inputNeeded
+                      : strings.approvalRequired,
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -1991,6 +2048,7 @@ class _ApprovalRow extends StatelessWidget {
 
 class _ComposerSelect extends StatelessWidget {
   const _ComposerSelect({
+    super.key,
     required this.value,
     required this.labels,
     required this.onChanged,
@@ -2007,7 +2065,7 @@ class _ComposerSelect extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      constraints: const BoxConstraints(minHeight: 27),
+      constraints: const BoxConstraints(minHeight: 27, maxWidth: 180),
       padding: const EdgeInsets.symmetric(horizontal: 7),
       decoration: BoxDecoration(
         color: _wash,
@@ -2033,6 +2091,7 @@ class _ComposerSelect extends StatelessWidget {
                     ),
                   ),
             isDense: true,
+            isExpanded: false,
             underline: const SizedBox.shrink(),
             icon: const Icon(Icons.keyboard_arrow_down, size: 13),
             style: const TextStyle(
@@ -2055,6 +2114,10 @@ class _ComposerSelect extends StatelessWidget {
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.input,
+    required this.strings,
+    required this.projectLabel,
+    required this.branchLabel,
+    required this.locationLabel,
     required this.model,
     required this.models,
     required this.mode,
@@ -2070,6 +2133,8 @@ class _Composer extends StatelessWidget {
     required this.onModeChanged,
   });
   final TextEditingController input;
+  final AppLocalizations strings;
+  final String? projectLabel, branchLabel, locationLabel;
   final String? model, effort;
   final List<String> models;
   final String mode;
@@ -2088,17 +2153,64 @@ class _Composer extends StatelessWidget {
     final selectedModel = availableModels.contains(model)
         ? model
         : availableModels.first;
+    final contextItems = <({IconData icon, String label})>[
+      if (projectLabel != null && projectLabel!.trim().isNotEmpty)
+        (icon: Icons.folder_outlined, label: projectLabel!.trim()),
+      if (locationLabel != null && locationLabel!.trim().isNotEmpty)
+        (icon: Icons.computer_outlined, label: locationLabel!.trim()),
+      if (branchLabel != null && branchLabel!.trim().isNotEmpty)
+        (icon: Icons.account_tree_outlined, label: branchLabel!.trim()),
+    ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(13, 0, 13, 10),
       child: Container(
         decoration: BoxDecoration(
           color: _panel,
-          border: Border.all(color: const Color(0xffd9dad4)),
-          borderRadius: BorderRadius.circular(17),
+          border: Border.all(color: const Color(0xffdeded9)),
+          borderRadius: BorderRadius.circular(18),
         ),
-        padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
+            if (contextItems.isNotEmpty)
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.fromLTRB(13, 9, 13, 3),
+                child: Row(
+                  children: [
+                    for (
+                      var index = 0;
+                      index < contextItems.length;
+                      index++
+                    ) ...[
+                      if (index > 0)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: Icon(
+                            Icons.chevron_right_rounded,
+                            size: 14,
+                            color: _muted,
+                          ),
+                        ),
+                      Icon(
+                        contextItems[index].icon,
+                        size: 15,
+                        color: const Color(0xff5d5e59),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        contextItems[index].label,
+                        maxLines: 1,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xff454641),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             TextField(
               controller: input,
               minLines: 1,
@@ -2108,58 +2220,81 @@ class _Composer extends StatelessWidget {
                 hintStyle: const TextStyle(color: _muted, fontSize: 13),
                 border: InputBorder.none,
                 isDense: true,
-                contentPadding: const EdgeInsets.symmetric(vertical: 7),
+                contentPadding: const EdgeInsets.fromLTRB(13, 7, 13, 9),
               ),
               style: const TextStyle(fontSize: 13),
             ),
-            Row(
-              children: [
-                _ComposerSelect(
-                  value: mode,
-                  leading: Icons.route_outlined,
-                  labels: const {'default': 'Default', 'plan': 'Plan'},
-                  onChanged: onModeChanged,
-                ),
-                const SizedBox(width: 6),
-                _ComposerSelect(
-                  value: selectedModel,
-                  labels: {for (final value in availableModels) value: value},
-                  onChanged: onModelChanged,
-                ),
-                if (efforts.isNotEmpty) ...[
-                  const SizedBox(width: 3),
-                  _ComposerSelect(
-                    value: effort,
-                    labels: {for (final value in efforts) value: value},
-                    placeholder: 'Effort',
-                    onChanged: onEffortChanged,
-                  ),
-                ],
-                const Spacer(),
-                if (running && onStop != null)
-                  IconButton(
-                    tooltip: 'Stop',
-                    onPressed: busy ? null : onStop,
-                    icon: const Icon(Icons.stop_circle_outlined, size: 20),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 31,
-                      height: 31,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(7, 0, 7, 7),
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: _ComposerSelect(
+                      value: mode,
+                      leading: Icons.route_outlined,
+                      labels: {
+                        'default': strings.defaultMode,
+                        'plan': strings.planMode,
+                      },
+                      onChanged: onModeChanged,
                     ),
                   ),
-                IconButton.filled(
-                  tooltip: running ? 'Steer' : '发送',
-                  onPressed: busy ? null : onSend,
-                  icon: const Icon(Icons.arrow_upward_rounded, size: 18),
-                  style: IconButton.styleFrom(
-                    backgroundColor: _ink,
-                    foregroundColor: Colors.white,
-                    fixedSize: const Size(32, 32),
-                    padding: EdgeInsets.zero,
-                    shape: const CircleBorder(),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _ComposerSelect(
+                            key: const ValueKey('model-select'),
+                            value: selectedModel,
+                            labels: {
+                              for (final value in availableModels) value: value,
+                            },
+                            onChanged: onModelChanged,
+                          ),
+                          if (efforts.isNotEmpty) ...[
+                            const SizedBox(width: 5),
+                            _ComposerSelect(
+                              value: effort,
+                              labels: {
+                                for (final value in efforts) value: value,
+                              },
+                              placeholder: strings.effort,
+                              onChanged: onEffortChanged,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                  if (running && onStop != null)
+                    IconButton(
+                      tooltip: strings.stop,
+                      onPressed: busy ? null : onStop,
+                      icon: const Icon(Icons.stop_circle_outlined, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 31,
+                        height: 31,
+                      ),
+                    ),
+                  IconButton.filled(
+                    tooltip: running ? strings.steer : strings.send,
+                    onPressed: busy ? null : onSend,
+                    icon: const Icon(Icons.arrow_upward_rounded, size: 18),
+                    style: IconButton.styleFrom(
+                      backgroundColor: _ink,
+                      foregroundColor: Colors.white,
+                      fixedSize: const Size(32, 32),
+                      padding: EdgeInsets.zero,
+                      shape: const CircleBorder(),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

@@ -5,7 +5,7 @@ import { createInterface } from 'node:readline';
 import { resolve } from 'node:path';
 import { BridgeError } from './errors.ts';
 import { fields, nonempty } from './policy.ts';
-import { projectIdForThread, threadView } from './views.ts';
+import { mergeThreadViews, threadView } from './views.ts';
 import { validateNative } from './schema.ts';
 import { fileURLToPath } from 'node:url';
 import type { Backend, JsonObject, NativeId } from './types.ts';
@@ -39,7 +39,7 @@ export class FridaBackend extends EventEmitter implements Backend {
   private models: any[] = [];
   private lastProbeSeq = 0;
   private projectRoots = new Map<string, string>();
-  private options: { workspace: string; pid?: number; python?: string; deps?: string; timeoutMs?: number; allowControl?: boolean; projectProvider?: () => Promise<any>; settingsUi?: { endpoint: string; token: string }; settingsRequest?: (action: string, payload: JsonObject) => Promise<unknown> | unknown };
+  private options: { workspace: string; pid?: number; python?: string; deps?: string; timeoutMs?: number; allowControl?: boolean; projectProvider?: () => Promise<any>; threadProvider?: (params?: JsonObject) => Promise<any>; settingsUi?: { endpoint: string; token: string }; settingsRequest?: (action: string, payload: JsonObject) => Promise<unknown> | unknown };
   lastCleanup?: { hooksRestored: boolean; stopped: boolean };
   private hooksInstalled = false;
   private hooksRestored = false;
@@ -50,7 +50,7 @@ export class FridaBackend extends EventEmitter implements Backend {
   private helperVersions: { python?: string; frida?: string } = {};
   private runtimeFeatures: { allowControl: boolean; allowApprovals: boolean };
 
-  constructor(options: { workspace: string; pid?: number; python?: string; deps?: string; timeoutMs?: number; allowControl?: boolean; projectProvider?: () => Promise<any>; settingsUi?: { endpoint: string; token: string }; settingsRequest?: (action: string, payload: JsonObject) => Promise<unknown> | unknown }) {
+  constructor(options: { workspace: string; pid?: number; python?: string; deps?: string; timeoutMs?: number; allowControl?: boolean; projectProvider?: () => Promise<any>; threadProvider?: (params?: JsonObject) => Promise<any>; settingsUi?: { endpoint: string; token: string }; settingsRequest?: (action: string, payload: JsonObject) => Promise<unknown> | unknown }) {
     super(); this.options = options;
     this.runtimeFeatures = { allowControl: options.allowControl === true, allowApprovals: options.allowControl === true };
   }
@@ -196,22 +196,38 @@ export class FridaBackend extends EventEmitter implements Backend {
     if (method === 'bridge.project.list') {
       fields(params, []);
       const result = this.options.projectProvider ? await this.options.projectProvider() : { projects: [] };
-      const projects = (result.projects ?? []).filter((p: any) => p.projectKind === 'local' && p.hostId === 'local' && typeof p.path === 'string');
+      const rawProjects = Array.isArray(result?.projects) ? result.projects : [];
+      const projects = rawProjects
+        .map((p: any) => {
+          const projectId = p.projectId ?? p.id ?? p.slug ?? p.path;
+          const path = p.path ?? p.root ?? p.cwd;
+          const label = p.label ?? p.name ?? p.title ?? (typeof path === 'string' ? path.split(/[\\/]/).at(-1) : projectId);
+          const branch = p.branch ?? p.branchName ?? p.gitBranch;
+          return { projectId, path, label, ...(branch ? { branch } : {}), hostId: p.hostId ?? 'local' };
+        })
+        .filter((p: any) => typeof p.projectId === 'string' && (p.hostId === 'local' || typeof p.path === 'string'));
       this.projectRoots.clear(); this.projectRoots.set('workspace', this.options.workspace);
-      for (const project of projects) this.projectRoots.set(project.projectId, project.path);
-      return { projects: projects.length ? projects.map((p: any) => ({ projectId: p.projectId, label: p.label, hostId: p.hostId })) : [{ projectId: 'workspace', label: 'Bridge workspace', hostId: 'local' }] };
+      for (const project of projects) {
+        if (typeof project.path === 'string') this.projectRoots.set(project.projectId, project.path);
+      }
+      const advertised = projects.map((p: any) => ({ projectId: p.projectId, label: p.label, ...(p.branch ? { branch: p.branch } : {}), hostId: p.hostId }));
+      if (!advertised.some((p: any) => p.projectId === 'workspace')) advertised.unshift({ projectId: 'workspace', label: 'Bridge workspace', hostId: 'local' });
+      return { projects: advertised };
     }
     if (method === 'bridge.thread.list') {
       fields(params, ['limit', 'cursor']);
       const result = await this.send('call', { method: 'thread/list', params });
       this.verifiedMethods.add('bridge.thread.list');
-      return {
-        threads: (result.data ?? []).map((thread: any) => {
-          const projectId = projectIdForThread(thread, this.projectRoots);
-          return { ...threadView(thread), ...(projectId ? { projectId } : {}) };
-        }),
-        nextCursor: result.nextCursor,
-      };
+      const nativeThreads = Array.isArray(result?.data) ? result.data : [];
+      if (this.options.threadProvider) {
+        try {
+          const sidebar = await this.options.threadProvider(params);
+          return { threads: mergeThreadViews(nativeThreads, sidebar, this.projectRoots), nextCursor: result.nextCursor };
+        } catch {
+          // Fall back to native thread metadata if Desktop sidebar tools are unavailable.
+        }
+      }
+      return { threads: mergeThreadViews(nativeThreads, {}, this.projectRoots), nextCursor: result.nextCursor };
     }
     if (method === 'bridge.thread.read') { fields(params, ['threadId']); nonempty(params.threadId, 'threadId'); const result = await this.send('call', { method: 'thread/read', params: { threadId: params.threadId, includeTurns: true } }); this.verifiedMethods.add('bridge.thread.read'); return { thread: threadView(result.thread) }; }
     if (method === 'bridge.thread.create') {

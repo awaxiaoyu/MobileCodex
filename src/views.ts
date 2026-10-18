@@ -4,13 +4,25 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 // filesystem metadata, credentials, and low-level tool payloads.
 export function threadView(thread: any) {
   const t = thread ?? {};
+  const projectId = typeof t.projectId === 'string'
+    ? t.projectId
+    : typeof t.project?.projectId === 'string'
+      ? t.project.projectId
+      : typeof t.project?.id === 'string'
+        ? t.project.id
+        : undefined;
+  const pinned = t.pinned === true || t.isPinned === true || t.pinnedSummary === true;
+  const preview = [t.preview, t.summary, t.firstUserMessage, t.lastMessage]
+    .find((value) => typeof value === 'string' && value.trim().length > 0);
   return {
     id: t.id ?? t.threadId,
     title: t.name ?? t.title ?? t.preview ?? '',
+    ...(typeof preview === 'string' ? { preview: preview.trim().slice(0, 300) } : {}),
     status: t.status,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
-    ...(typeof t.projectId === 'string' ? { projectId: t.projectId } : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(pinned ? { pinned: true } : {}),
     ...(t.turns ? { turns: t.turns.map((turn: any) => ({
       id: turn.id,
       status: turn.status,
@@ -25,9 +37,57 @@ export function threadView(thread: any) {
   };
 }
 
+export function mergeThreadViews(nativeThreads: any[], sidebar: any, roots: Map<string, string>) {
+  const threads = new Map<string, any>();
+  for (const raw of nativeThreads) {
+    const view = threadView(raw);
+    if (typeof view.id !== 'string') continue;
+    const projectId = projectIdForThread(raw, roots) ?? view.projectId;
+    threads.set(view.id, { ...view, ...(projectId ? { projectId } : {}) });
+  }
+
+  const pinnedEntries = Array.isArray(sidebar?.pinnedThreads) ? sidebar.pinnedThreads : [];
+  const pinnedIds = new Set<string>(
+    pinnedEntries
+      .map((entry: any) => typeof entry === 'string' ? entry : entry?.id ?? entry?.threadId)
+      .filter((id: any): id is string => typeof id === 'string'),
+  );
+  const sidebarThreads = [
+    ...(Array.isArray(sidebar?.threads) ? sidebar.threads : Array.isArray(sidebar) ? sidebar : []),
+    ...(Array.isArray(sidebar?.data) ? sidebar.data : []),
+    ...pinnedEntries.filter((entry: any) => entry && typeof entry === 'object' && !Array.isArray(entry)),
+  ];
+
+  for (const raw of sidebarThreads) {
+    const view = threadView(raw);
+    if (typeof view.id !== 'string') continue;
+    const projectId = projectIdForThread(raw, roots) ?? view.projectId;
+    const merged = { ...(threads.get(view.id) ?? {}) };
+    for (const [key, value] of Object.entries(view)) {
+      if (value !== undefined && !(key === 'title' && value === '')) merged[key] = value;
+    }
+    if (projectId) merged.projectId = projectId;
+    if (pinnedIds.has(view.id) || view.pinned) merged.pinned = true;
+    threads.set(view.id, merged);
+  }
+
+  for (const id of pinnedIds) {
+    const thread = threads.get(id);
+    if (thread) thread.pinned = true;
+  }
+  return [...threads.values()];
+}
+
 export function projectIdForThread(thread: any, roots: Map<string, string>) {
-  if (typeof thread?.projectId === 'string' && roots.has(thread.projectId)) {
-    return thread.projectId;
+  const direct = typeof thread?.projectId === 'string'
+    ? thread.projectId
+    : typeof thread?.project?.projectId === 'string'
+      ? thread.project.projectId
+      : typeof thread?.project?.id === 'string'
+        ? thread.project.id
+        : undefined;
+  if (direct) {
+    return direct;
   }
   if (typeof thread?.cwd !== 'string' || !isAbsolute(thread.cwd)) return undefined;
 
