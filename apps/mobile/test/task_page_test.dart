@@ -285,6 +285,118 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('completed turns show only the final answer and can expand', (
+    tester,
+  ) async {
+    final fixture = DesktopFixture()
+      ..fixtureThreads = [
+        {
+          'id': 'snapshot-chat',
+          'title': 'Snapshot chat',
+          'preview': 'Visible request',
+        },
+      ]
+      ..fixtureSnapshot = {
+        'id': 'snapshot-chat',
+        'title': 'Snapshot chat',
+        'turns': [
+          {
+            'id': 'completed-turn',
+            'status': 'completed',
+            'items': [
+              {
+                'id': 'request',
+                'type': 'userMessage',
+                'text': 'Original request',
+              },
+              {'id': 'plan', 'type': 'plan', 'text': 'Intermediate plan'},
+              {'id': 'answer', 'type': 'agentMessage', 'text': 'Final answer'},
+            ],
+          },
+        ],
+      };
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(MaterialApp(home: TaskPage(client: fixture)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Snapshot chat'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Original request'), findsNothing);
+    expect(find.text('Intermediate plan'), findsNothing);
+    expect(find.text('Final answer'), findsOneWidget);
+    expect(find.text('Final response'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('expand-turn-completed-turn')));
+    await tester.pumpAndSettle();
+    expect(find.text('Original request'), findsOneWidget);
+    expect(find.text('Intermediate plan'), findsNothing);
+    expect(find.text('Hide earlier messages'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('composer shell has no border and preferences are actionable', (
+    tester,
+  ) async {
+    final fixture = DesktopFixture();
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(MaterialApp(home: TaskPage(client: fixture)));
+    await tester.pumpAndSettle();
+
+    final composer = tester.widget<Container>(
+      find.byKey(const ValueKey('composer-shell')),
+    );
+    expect(composer.decoration, isA<BoxDecoration>());
+    expect((composer.decoration! as BoxDecoration).border, isNull);
+
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-appearance')));
+    await tester.pumpAndSettle();
+    expect(find.text('Show reasoning summaries'), findsOneWidget);
+    expect(find.text('Collapse completed turns'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('settings opens as a full page with supported sections only', (
+    tester,
+  ) async {
+    final fixture = DesktopFixture();
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(MaterialApp(home: TaskPage(client: fixture)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Appearance'), findsOneWidget);
+    expect(find.text('Voice'), findsOneWidget);
+    expect(find.text('Storage'), findsOneWidget);
+    expect(find.text('Archived chats'), findsNothing);
+    expect(find.text('Plugins'), findsNothing);
+    expect(find.text('Computer use'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('settings-voice')));
+    await tester.pumpAndSettle();
+    expect(find.text('Voice input'), findsOneWidget);
+    expect(find.text('Dictation language'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('settings-storage')));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('Storage'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('empty titles without message content are omitted from chats', (
     tester,
   ) async {

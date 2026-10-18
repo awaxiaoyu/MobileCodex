@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import test from 'node:test';
-import { mergeThreadViews, projectIdForThread, threadView } from '../src/views.ts';
+import { mergeThreadViews, mobileNotification, projectIdForThread, threadView } from '../src/views.ts';
 
 test('thread project is inferred from the most specific root without exposing cwd', () => {
   const workspace = resolve('workspace');
@@ -129,4 +129,42 @@ test('Windows extended cwd paths still map to their project root', () => {
   const root = 'C:\\Users\\example\\workspace';
   const cwd = '\\\\?\\C:\\Users\\example\\workspace\\apps\\mobile';
   assert.equal(projectIdForThread({ cwd }, new Map([['workspace', root]])), 'workspace');
+});
+
+test('thread view keeps reasoning summaries for the mobile preference toggle', () => {
+  assert.deepEqual(threadView({
+    id: 'reasoning-thread',
+    turns: [{
+      id: 'turn-1',
+      status: 'completed',
+      items: [{
+        id: 'reasoning-1',
+        type: 'reasoning',
+        summary: [{ type: 'summary_text', text: 'A concise reasoning summary' }],
+      }],
+    }],
+  }).turns[0].items, [{
+    id: 'reasoning-1',
+    type: 'reasoning',
+    text: 'A concise reasoning summary',
+  }]);
+});
+
+test('reasoning deltas retain their item type', () => {
+  assert.deepEqual(
+    mobileNotification({
+      method: 'item/reasoning/summaryTextDelta',
+      params: { threadId: 't', turnId: 'u', itemId: 'i', delta: 'summary' },
+    }),
+    {
+      method: 'event.item.delta',
+      data: {
+        threadId: 't',
+        turnId: 'u',
+        itemId: 'i',
+        delta: 'summary',
+        type: 'reasoning',
+      },
+    },
+  );
 });

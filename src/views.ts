@@ -21,10 +21,16 @@ export function threadView(thread: any) {
       id: turn.id,
       status: turn.status,
       error: turn.error,
-      items: (turn.items ?? []).filter((item: any) => ['userMessage', 'agentMessage', 'plan'].includes(item.type)).map((item: any) => ({
+        items: (turn.items ?? []).filter((item: any) => ['userMessage', 'agentMessage', 'plan', 'reasoning'].includes(item.type)).map((item: any) => ({
         id: item.id,
         type: item.type,
         ...(typeof item.text === 'string' ? { text: item.text } : {}),
+        ...(item.type === 'reasoning' && Array.isArray(item.summary) ? {
+          text: item.summary
+            .filter((part: any) => part?.type === 'summary_text' && typeof part.text === 'string')
+            .map((part: any) => part.text)
+            .join('\n'),
+        } : {}),
         ...(Array.isArray(item.content) ? { content: item.content.filter((c: any) => c.type === 'text').map((c: any) => ({ type: 'text', text: c.text })) } : {}),
       })),
     })) } : {}),
@@ -150,7 +156,8 @@ export function mobileNotification(message: any): { method: string; data: any } 
   const p = message.params ?? {};
   switch (message.method) {
     case 'item/agentMessage/delta': case 'item/plan/delta':
-      return { method: 'event.item.delta', data: { threadId: p.threadId, turnId: p.turnId, itemId: p.itemId, delta: p.delta } };
+    case 'item/reasoning/summaryTextDelta': case 'item/reasoning/textDelta':
+      return { method: 'event.item.delta', data: { threadId: p.threadId, turnId: p.turnId, itemId: p.itemId, delta: p.delta, type: message.method.startsWith('item/reasoning/') ? 'reasoning' : message.method === 'item/plan/delta' ? 'plan' : 'agentMessage' } };
     case 'thread/started':
       return { method: 'event.thread.started', data: { thread: threadView(p.thread) } };
     case 'thread/status/changed': case 'turn/started': case 'turn/completed':

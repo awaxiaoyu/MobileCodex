@@ -21,8 +21,99 @@ const _wash = Color(0xffefefeb);
 
 void main() => runApp(const MobileCodexApp());
 
-class MobileCodexApp extends StatelessWidget {
+class MobileCodexApp extends StatefulWidget {
   const MobileCodexApp({super.key});
+
+  @override
+  State<MobileCodexApp> createState() => _MobileCodexAppState();
+}
+
+class _MobileCodexAppState extends State<MobileCodexApp> {
+  ThemeMode themeMode = ThemeMode.light;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(loadThemeMode());
+  }
+
+  Future<File> appearanceFile() async {
+    final directory = await getApplicationSupportDirectory();
+    return File('${directory.path}/appearance.json');
+  }
+
+  Future<void> loadThemeMode() async {
+    try {
+      final file = await appearanceFile();
+      if (!await file.exists()) return;
+      final value = jsonDecode(await file.readAsString());
+      final name = value is Map ? value['themeMode']?.toString() : null;
+      final next = switch (name) {
+        'system' => ThemeMode.system,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.light,
+      };
+      if (mounted) setState(() => themeMode = next);
+    } catch (_) {}
+  }
+
+  void updateThemeMode(ThemeMode value) {
+    setState(() => themeMode = value);
+    unawaited(() async {
+      try {
+        final file = await appearanceFile();
+        await file.parent.create(recursive: true);
+        await file.writeAsString(jsonEncode({'themeMode': value.name}));
+      } catch (_) {}
+    }());
+  }
+
+  ThemeData darkTheme() => ThemeData(
+    brightness: Brightness.dark,
+    colorScheme: ColorScheme.fromSeed(
+      seedColor: const Color(0xff8ab4f8),
+      brightness: Brightness.dark,
+    ),
+    scaffoldBackgroundColor: const Color(0xff181818),
+    canvasColor: const Color(0xff242424),
+    cardColor: const Color(0xff242424),
+    dividerColor: const Color(0xff3b3b3b),
+    appBarTheme: const AppBarTheme(
+      backgroundColor: Color(0xff181818),
+      foregroundColor: Colors.white,
+      elevation: 0,
+    ),
+    inputDecorationTheme: const InputDecorationTheme(
+      isDense: true,
+      filled: true,
+      fillColor: Color(0xff2b2b2b),
+      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderSide: BorderSide(color: Color(0xff444444)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderSide: BorderSide(color: Color(0xff444444)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(12)),
+        borderSide: BorderSide(color: Color(0xff9bbcff), width: 1.2),
+      ),
+      labelStyle: TextStyle(color: Color(0xffb7b7b7), fontSize: 12),
+      hintStyle: TextStyle(color: Color(0xff9f9f9f), fontSize: 12),
+    ),
+    textTheme: const TextTheme(
+      titleLarge: TextStyle(fontSize: 21, fontWeight: FontWeight.w700),
+      titleMedium: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+      bodyLarge: TextStyle(fontSize: 14),
+      bodyMedium: TextStyle(fontSize: 13),
+      bodySmall: TextStyle(fontSize: 11),
+      labelLarge: TextStyle(fontSize: 12),
+    ),
+    useMaterial3: true,
+  );
+
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Mobile Codex',
@@ -120,7 +211,9 @@ class MobileCodexApp extends StatelessWidget {
       fontFamily: 'SF Pro Text',
       useMaterial3: true,
     ),
-    home: const TaskPage(),
+    darkTheme: darkTheme(),
+    themeMode: themeMode,
+    home: TaskPage(themeMode: themeMode, onThemeModeChanged: updateThemeMode),
     supportedLocales: AppLocalizations.supportedLocales,
     localizationsDelegates: const [
       AppLocalizations.delegate,
@@ -132,8 +225,15 @@ class MobileCodexApp extends StatelessWidget {
 }
 
 class TaskPage extends StatefulWidget {
-  const TaskPage({super.key, this.client});
+  const TaskPage({
+    super.key,
+    this.client,
+    this.themeMode = ThemeMode.light,
+    this.onThemeModeChanged,
+  });
   final BridgeClient? client;
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
   @override
   State<TaskPage> createState() => _TaskPageState();
 }
@@ -151,6 +251,7 @@ class _TaskPageState extends State<TaskPage> {
   final pinnedThreadIds = <String>{};
   final pinnedThreadSummaries = <String, Map<String, dynamic>>{};
   late final Future<void> pinnedLoad;
+  late final Future<void> preferencesLoad;
   Map<String, dynamic>? backend, thread;
   bool desktopReady = false;
   final approvals = <String, Map<String, dynamic>>{};
@@ -161,6 +262,13 @@ class _TaskPageState extends State<TaskPage> {
   String? legacyExpandedProjectId;
   String? model, effort, turnId, streamId, unknownRequest;
   String mode = 'default', diff = '', notice = '';
+  final expandedCompletedTurns = <String>{};
+  bool showReasoningSummaries = false;
+  bool collapseCompletedTurns = true;
+  bool voiceInputEnabled = false;
+  bool autoSendVoice = false;
+  String voiceLanguage = 'auto';
+  String responseStyle = 'none';
   int seq = 0;
   bool busy = false, running = false, syncing = false;
   @override
@@ -171,7 +279,9 @@ class _TaskPageState extends State<TaskPage> {
     client.addListener(refresh);
     subscription = client.events.stream.listen(onEvent);
     pinnedLoad = loadPinned();
+    preferencesLoad = loadPreferences();
     unawaited(pinnedLoad);
+    unawaited(preferencesLoad);
     unawaited(
       client.restore().catchError((Object e) => setNotice(e.toString())),
     );
@@ -215,6 +325,55 @@ class _TaskPageState extends State<TaskPage> {
           for (final id in pinnedThreadIds)
             pinnedThreadSummaries[id] ?? {'id': id},
         ]),
+      );
+    } catch (_) {}
+  }
+
+  Future<File> preferencesFile() async {
+    final directory = await getApplicationSupportDirectory();
+    return File('${directory.path}/preferences.json');
+  }
+
+  Future<void> loadPreferences() async {
+    try {
+      final file = await preferencesFile();
+      if (!await file.exists()) return;
+      final value = jsonDecode(await file.readAsString());
+      if (value is! Map) return;
+      if (!mounted) return;
+      setState(() {
+        showReasoningSummaries = value['showReasoningSummaries'] == true;
+        collapseCompletedTurns = value['collapseCompletedTurns'] != false;
+        voiceInputEnabled = value['voiceInputEnabled'] == true;
+        autoSendVoice = value['autoSendVoice'] == true;
+        final language = value['voiceLanguage']?.toString();
+        if (language == 'auto' || language == 'zh' || language == 'en') {
+          voiceLanguage = language!;
+        }
+        final style = value['responseStyle']?.toString();
+        if (style == 'none' || style == 'friendly' || style == 'pragmatic') {
+          responseStyle = style!;
+        }
+      });
+    } catch (_) {
+      // Preferences are optional; app startup must work without local storage.
+    }
+  }
+
+  Future<void> persistPreferences() async {
+    try {
+      await preferencesLoad;
+      final file = await preferencesFile();
+      await file.parent.create(recursive: true);
+      await file.writeAsString(
+        jsonEncode({
+          'showReasoningSummaries': showReasoningSummaries,
+          'collapseCompletedTurns': collapseCompletedTurns,
+          'voiceInputEnabled': voiceInputEnabled,
+          'autoSendVoice': autoSendVoice,
+          'voiceLanguage': voiceLanguage,
+          'responseStyle': responseStyle,
+        }),
       );
     } catch (_) {}
   }
@@ -365,7 +524,7 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   bool isVisibleTimelineItem(Map<String, dynamic> item) {
-    const visibleTypes = {'userMessage', 'agentMessage', 'plan'};
+    const visibleTypes = {'userMessage', 'agentMessage', 'plan', 'reasoning'};
     return visibleTypes.contains(item['type']) && itemText(item) != null;
   }
 
@@ -390,8 +549,8 @@ class _TaskPageState extends State<TaskPage> {
     icon: const Icon(Icons.menu_rounded, size: 19),
     style: IconButton.styleFrom(
       fixedSize: const Size(34, 34),
-      backgroundColor: Colors.white,
-      foregroundColor: _ink,
+      backgroundColor: Theme.of(context).cardColor,
+      foregroundColor: Theme.of(context).colorScheme.onSurface,
       shadowColor: const Color(0x2e191916),
       elevation: 3,
       padding: EdgeInsets.zero,
@@ -669,6 +828,14 @@ class _TaskPageState extends State<TaskPage> {
     if (event['method'] == 'event.task.status') {
       if (p['turnId'] != null) newThreads.remove(event['threadId']);
       turnId = p['turnId'] as String? ?? turnId;
+      final turns = thread?['turns'];
+      if (turns is List && p['status'] is String) {
+        final updatedTurn = turns
+            .whereType<Map>()
+            .where((value) => value['id'] == turnId)
+            .firstOrNull;
+        if (updatedTurn != null) updatedTurn['status'] = p['status'];
+      }
       if (['inProgress', 'started'].contains(p['status'])) running = true;
       if (['completed', 'interrupted', 'failed'].contains(p['status'])) {
         running = false;
@@ -695,7 +862,11 @@ class _TaskPageState extends State<TaskPage> {
           .where((i) => i['id'] == p['itemId'])
           .firstOrNull;
       if (item == null) {
-        item = {'id': p['itemId'], 'type': 'agentMessage', 'text': ''};
+        item = {
+          'id': p['itemId'],
+          'type': p['type'] as String? ?? 'agentMessage',
+          'text': '',
+        };
         items.add(item);
       }
       item['text'] = '${item['text']}${p['delta'] ?? ''}';
@@ -775,6 +946,7 @@ class _TaskPageState extends State<TaskPage> {
     approvals.clear();
     diff = '';
     artifacts = [];
+    expandedCompletedTurns.clear();
     streamId = null;
     seq = 0;
     await snapshot();
@@ -826,6 +998,7 @@ class _TaskPageState extends State<TaskPage> {
         if (running) 'expectedTurnId': turnId,
         if (!running && model != null) 'model': model,
         if (!running && effort != null) 'effort': effort,
+        if (!running && responseStyle != 'none') 'personality': responseStyle,
         if (!running && model != null)
           'collaborationMode': {
             'mode': mode,
@@ -1262,6 +1435,64 @@ class _TaskPageState extends State<TaskPage> {
     );
   }
 
+  void openSettings() {
+    setDrawer(false);
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SettingsPage(
+          statusLabel: localizedConnectionStatus(AppLocalizations.of(context)),
+          desktopReady: desktopReady,
+          models: models,
+          selectedModel: model,
+          selectedEffort: effort,
+          mode: mode,
+          projects: projects,
+          selectedProjectId: projectId,
+          themeMode: widget.themeMode,
+          voiceInputEnabled: voiceInputEnabled,
+          autoSendVoice: autoSendVoice,
+          voiceLanguage: voiceLanguage,
+          responseStyle: responseStyle,
+          showReasoningSummaries: showReasoningSummaries,
+          collapseCompletedTurns: collapseCompletedTurns,
+          onPair: () => action(pair),
+          onThemeModeChanged: widget.onThemeModeChanged,
+          onModelChanged: (value) => setState(() {
+            model = value;
+            effort = null;
+          }),
+          onEffortChanged: (value) => setState(() => effort = value),
+          onModeChanged: (value) => setState(() => mode = value),
+          onProjectChanged: (value) => setState(() => projectId = value),
+          onVoiceInputChanged: (value) {
+            setState(() => voiceInputEnabled = value);
+            unawaited(persistPreferences());
+          },
+          onAutoSendVoiceChanged: (value) {
+            setState(() => autoSendVoice = value);
+            unawaited(persistPreferences());
+          },
+          onVoiceLanguageChanged: (value) {
+            setState(() => voiceLanguage = value);
+            unawaited(persistPreferences());
+          },
+          onResponseStyleChanged: (value) {
+            setState(() => responseStyle = value);
+            unawaited(persistPreferences());
+          },
+          onShowReasoningChanged: (value) {
+            setState(() => showReasoningSummaries = value);
+            unawaited(persistPreferences());
+          },
+          onCollapseCompletedChanged: (value) {
+            setState(() => collapseCompletedTurns = value);
+            unawaited(persistPreferences());
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final strings = AppLocalizations.of(context);
@@ -1272,13 +1503,7 @@ class _TaskPageState extends State<TaskPage> {
     final efforts = (selectedModel?['supportedReasoningEfforts'] as List? ?? [])
         .map((e) => e['reasoningEffort'] as String)
         .toList();
-    final items = <Map<String, dynamic>>[
-      for (final turn in thread?['turns'] as List? ?? [])
-        for (final item in turn['items'] as List? ?? [])
-          if (item is Map &&
-              isVisibleTimelineItem(Map<String, dynamic>.from(item)))
-            Map<String, dynamic>.from(item),
-    ];
+    final turns = thread?['turns'] as List? ?? [];
     final threadsById = {
       for (final value in threads)
         if (value is Map && value['id'] is String)
@@ -1322,7 +1547,9 @@ class _TaskPageState extends State<TaskPage> {
       strings: strings,
       projectLabel: projectLabel(composerProjectId),
       branchLabel: projectBranch(composerProjectId),
-      locationLabel: client.status == '已连接' && desktopReady ? strings.local : null,
+      locationLabel: client.status == '已连接' && desktopReady
+          ? strings.local
+          : null,
       model: model,
       models: modelOptions,
       mode: mode,
@@ -1347,18 +1574,90 @@ class _TaskPageState extends State<TaskPage> {
       onEffortChanged: (value) => setState(() => effort = value),
       onModeChanged: (value) => setState(() => mode = value ?? mode),
     );
-    final children = <Widget>[
-      for (final item in items)
-        RepaintBoundary(
-          key: ValueKey(item['id']),
-          child: _TimelineItem(
-            isUser: item['type'] == 'userMessage',
-            label: item['type'] == 'userMessage'
-                ? strings.you
-                : strings.assistant,
-            child: MarkdownBody(selectable: true, data: itemText(item)!),
+    final timeline = <Widget>[];
+    for (var turnIndex = 0; turnIndex < turns.length; turnIndex++) {
+      final rawTurn = turns[turnIndex];
+      if (rawTurn is! Map) continue;
+      final currentTurn = Map<String, dynamic>.from(rawTurn);
+      final turnItems = (currentTurn['items'] as List? ?? [])
+          .whereType<Map>()
+          .map(Map<String, dynamic>.from)
+          .where(
+            (item) =>
+                isVisibleTimelineItem(item) &&
+                (showReasoningSummaries ||
+                    (item['type'] != 'plan' && item['type'] != 'reasoning')),
+          )
+          .toList();
+      if (turnItems.isEmpty) continue;
+
+      final turnKey = currentTurn['id']?.toString() ?? 'turn-$turnIndex';
+      final completed = currentTurn['status'] == 'completed';
+      final collapsed =
+          completed &&
+          collapseCompletedTurns &&
+          !expandedCompletedTurns.contains(turnKey);
+      final finalAnswer = turnItems
+          .where((item) => item['type'] == 'agentMessage')
+          .lastOrNull;
+      final visibleItems = collapsed && finalAnswer != null
+          ? [finalAnswer]
+          : collapsed
+          ? [turnItems.last]
+          : turnItems;
+
+      for (final item in visibleItems) {
+        final isFinalAnswer =
+            collapsed && finalAnswer != null && item['id'] == finalAnswer['id'];
+        timeline.add(
+          RepaintBoundary(
+            key: ValueKey(item['id'] ?? '$turnKey-${timeline.length}'),
+            child: _TimelineItem(
+              isUser: item['type'] == 'userMessage',
+              label: isFinalAnswer
+                  ? strings.finalSummary
+                  : item['type'] == 'userMessage'
+                  ? strings.you
+                  : strings.assistant,
+              child: MarkdownBody(selectable: true, data: itemText(item)!),
+            ),
           ),
-        ),
+        );
+      }
+
+      if (collapsed && turnItems.length > visibleItems.length) {
+        timeline.add(
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: ValueKey('expand-turn-$turnKey'),
+              onPressed: () =>
+                  setState(() => expandedCompletedTurns.add(turnKey)),
+              icon: const Icon(Icons.expand_more_rounded, size: 17),
+              label: Text(strings.showFullConversation),
+            ),
+          ),
+        );
+      } else if (completed &&
+          collapseCompletedTurns &&
+          expandedCompletedTurns.contains(turnKey)) {
+        timeline.add(
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: ValueKey('collapse-turn-$turnKey'),
+              onPressed: () =>
+                  setState(() => expandedCompletedTurns.remove(turnKey)),
+              icon: const Icon(Icons.expand_less_rounded, size: 17),
+              label: Text(strings.hideFullConversation),
+            ),
+          ),
+        );
+      }
+    }
+
+    final children = <Widget>[
+      ...timeline,
       if (diff.isNotEmpty)
         _TimelineItem(
           child: ExpansionTile(
@@ -1432,7 +1731,7 @@ class _TaskPageState extends State<TaskPage> {
               child: SizedBox(
                 width: drawerWidth,
                 child: Container(
-                  color: Colors.white,
+                  color: Theme.of(context).cardColor,
                   padding: EdgeInsets.fromLTRB(
                     16,
                     MediaQuery.paddingOf(context).top + 24,
@@ -1599,40 +1898,14 @@ class _TaskPageState extends State<TaskPage> {
                           const Spacer(),
                           IconButton(
                             tooltip: strings.settings,
-                            onPressed: () => showDialog<void>(
-                              context: context,
-                              builder: (ctx) => AlertDialog(
-                                title: Text(strings.settings),
-                                content: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    ListTile(
-                                      leading: const Icon(
-                                        Icons.computer_outlined,
-                                      ),
-                                      title: Text(strings.connectedComputer),
-                                      subtitle: Text(
-                                        localizedConnectionStatus(strings),
-                                      ),
-                                      onTap: () {
-                                        Navigator.pop(ctx);
-                                        action(pair);
-                                      },
-                                    ),
-                                    ListTile(
-                                      leading: const Icon(Icons.tune_rounded),
-                                      title: Text(strings.preferences),
-                                      trailing: const Icon(Icons.chevron_right),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                            onPressed: openSettings,
                             icon: const Icon(Icons.settings_outlined, size: 18),
                             style: IconButton.styleFrom(
                               fixedSize: const Size(38, 38),
-                              backgroundColor: Colors.white,
-                              foregroundColor: const Color(0xff151515),
+                              backgroundColor: Theme.of(context).cardColor,
+                              foregroundColor: Theme.of(context)
+                                  .colorScheme
+                                  .onSurface,
                               shadowColor: const Color(0x1f191916),
                               elevation: 2,
                               padding: EdgeInsets.zero,
@@ -1687,8 +1960,10 @@ class _TaskPageState extends State<TaskPage> {
                     ),
                     child: Stack(
                       children: [
-                        const Positioned.fill(
-                          child: ColoredBox(color: _surface),
+                        Positioned.fill(
+                          child: ColoredBox(
+                            color: Theme.of(context).scaffoldBackgroundColor,
+                          ),
                         ),
                         Positioned.fill(
                           child: SafeArea(
@@ -1738,7 +2013,9 @@ class _TaskPageState extends State<TaskPage> {
                                         width: 7,
                                         height: 7,
                                         decoration: BoxDecoration(
-                                          color: client.status == '已连接' && desktopReady
+                                          color:
+                                              client.status == '已连接' &&
+                                                  desktopReady
                                               ? const Color(0xff6d9b7f)
                                               : const Color(0xffb0b0b0),
                                           shape: BoxShape.circle,
@@ -1980,7 +2257,10 @@ class _TaskPageState extends State<TaskPage> {
         ],
       ),
     );
-    return Material(color: _surface, child: body);
+    return Material(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: body,
+    );
   }
 
   @override
@@ -1992,6 +2272,876 @@ class _TaskPageState extends State<TaskPage> {
     input.dispose();
     super.dispose();
   }
+}
+
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({
+    super.key,
+    required this.statusLabel,
+    required this.desktopReady,
+    required this.models,
+    required this.selectedModel,
+    required this.selectedEffort,
+    required this.mode,
+    required this.projects,
+    required this.selectedProjectId,
+    required this.themeMode,
+    required this.voiceInputEnabled,
+    required this.autoSendVoice,
+    required this.voiceLanguage,
+    required this.responseStyle,
+    required this.showReasoningSummaries,
+    required this.collapseCompletedTurns,
+    required this.onPair,
+    required this.onThemeModeChanged,
+    required this.onModelChanged,
+    required this.onEffortChanged,
+    required this.onModeChanged,
+    required this.onProjectChanged,
+    required this.onVoiceInputChanged,
+    required this.onAutoSendVoiceChanged,
+    required this.onVoiceLanguageChanged,
+    required this.onResponseStyleChanged,
+    required this.onShowReasoningChanged,
+    required this.onCollapseCompletedChanged,
+  });
+
+  final String statusLabel;
+  final bool desktopReady;
+  final List<dynamic> models, projects;
+  final String? selectedModel, selectedEffort, selectedProjectId;
+  final String mode, voiceLanguage;
+  final String responseStyle;
+  final ThemeMode themeMode;
+  final bool voiceInputEnabled, autoSendVoice;
+  final bool showReasoningSummaries, collapseCompletedTurns;
+  final VoidCallback onPair;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
+  final ValueChanged<String?> onModelChanged, onEffortChanged;
+  final ValueChanged<String> onModeChanged, onProjectChanged;
+  final ValueChanged<bool> onVoiceInputChanged, onAutoSendVoiceChanged;
+  final ValueChanged<String> onVoiceLanguageChanged;
+  final ValueChanged<String> onResponseStyleChanged;
+  final ValueChanged<bool> onShowReasoningChanged, onCollapseCompletedChanged;
+
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  String query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    final personal = <_SettingsEntry>[
+      _SettingsEntry('general', strings.general, Icons.settings_outlined),
+      _SettingsEntry('appearance', strings.appearance, Icons.wb_sunny_outlined),
+      _SettingsEntry('voice', strings.voice, Icons.mic_none_rounded),
+      _SettingsEntry('storage', strings.storage, Icons.folder_outlined),
+    ];
+    final computer = <_SettingsEntry>[
+      _SettingsEntry(
+        'configuration',
+        strings.configuration,
+        Icons.tune_rounded,
+      ),
+      _SettingsEntry(
+        'personalization',
+        strings.personalization,
+        Icons.auto_awesome_outlined,
+      ),
+    ];
+    final coding = <_SettingsEntry>[
+      _SettingsEntry('git', strings.git, Icons.account_tree_outlined),
+      _SettingsEntry('worktrees', strings.worktrees, Icons.call_split_rounded),
+    ];
+
+    bool matches(_SettingsEntry entry) =>
+        query.trim().isEmpty ||
+        entry.title.toLowerCase().contains(query.trim().toLowerCase());
+
+    Widget group(String title, List<_SettingsEntry> entries) {
+      final visible = entries.where(matches).toList();
+      if (visible.isEmpty) return const SizedBox.shrink();
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 22, 4, 8),
+            child: Text(
+              title,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                letterSpacing: .3,
+              ),
+            ),
+          ),
+          for (final entry in visible) _settingsRow(entry),
+        ],
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(strings.settings),
+        leading: const BackButton(),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 28),
+        children: [
+          Text(
+            strings.settingsDescription,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            key: const ValueKey('settings-search'),
+            onChanged: (value) => setState(() => query = value),
+            decoration: InputDecoration(
+              hintText: strings.searchSettings,
+              prefixIcon: const Icon(Icons.search_rounded, size: 19),
+              suffixIcon: query.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: strings.cancel,
+                      onPressed: () => setState(() => query = ''),
+                      icon: const Icon(Icons.clear_rounded, size: 18),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _computerConnectionCard(strings),
+          group(strings.personal, personal),
+          group(strings.computer, computer),
+          group(strings.coding, coding),
+        ],
+      ),
+    );
+  }
+
+  Widget _computerConnectionCard(AppLocalizations strings) {
+    final theme = Theme.of(context);
+    return Card(
+      key: const ValueKey('settings-computer-card'),
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: .55),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        leading: CircleAvatar(
+          backgroundColor: widget.desktopReady
+              ? const Color(0xffdff5e5)
+              : theme.colorScheme.surface,
+          foregroundColor: widget.desktopReady
+              ? const Color(0xff287343)
+              : theme.colorScheme.onSurfaceVariant,
+          child: Icon(
+            widget.desktopReady
+                ? Icons.computer_rounded
+                : Icons.computer_outlined,
+            size: 20,
+          ),
+        ),
+        title: Text(
+          strings.connectedComputer,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text('${strings.bridgeStatus}: ${widget.statusLabel}'),
+        trailing: TextButton(
+          onPressed: widget.onPair,
+          child: Text(
+            widget.desktopReady ? strings.connected : strings.pairComputer,
+          ),
+        ),
+        onTap: widget.onPair,
+      ),
+    );
+  }
+
+  Widget _settingsRow(_SettingsEntry entry) {
+    final strings = AppLocalizations.of(context);
+    final isMobile = const {
+      'appearance',
+      'voice',
+      'storage',
+    }.contains(entry.id);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 7),
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surfaceContainerHighest
+          .withValues(alpha: .32),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+      child: ListTile(
+        key: ValueKey('settings-${entry.id}'),
+        minVerticalPadding: 9,
+        leading: Icon(entry.icon, size: 21),
+        title: Text(
+          entry.title,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        subtitle: Text(
+          isMobile
+              ? strings.mobileSettingsDescription
+              : strings.computerSettingsDescription,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => _SettingsDetailPage(
+              section: entry.id,
+              statusLabel: widget.statusLabel,
+              desktopReady: widget.desktopReady,
+              models: widget.models,
+              selectedModel: widget.selectedModel,
+              selectedEffort: widget.selectedEffort,
+              mode: widget.mode,
+              projects: widget.projects,
+              selectedProjectId: widget.selectedProjectId,
+              themeMode: widget.themeMode,
+              voiceInputEnabled: widget.voiceInputEnabled,
+              autoSendVoice: widget.autoSendVoice,
+              voiceLanguage: widget.voiceLanguage,
+              responseStyle: widget.responseStyle,
+              showReasoningSummaries: widget.showReasoningSummaries,
+              collapseCompletedTurns: widget.collapseCompletedTurns,
+              onPair: widget.onPair,
+              onThemeModeChanged: widget.onThemeModeChanged,
+              onModelChanged: widget.onModelChanged,
+              onEffortChanged: widget.onEffortChanged,
+              onModeChanged: widget.onModeChanged,
+              onProjectChanged: widget.onProjectChanged,
+              onVoiceInputChanged: widget.onVoiceInputChanged,
+              onAutoSendVoiceChanged: widget.onAutoSendVoiceChanged,
+              onVoiceLanguageChanged: widget.onVoiceLanguageChanged,
+              onResponseStyleChanged: widget.onResponseStyleChanged,
+              onShowReasoningChanged: widget.onShowReasoningChanged,
+              onCollapseCompletedChanged: widget.onCollapseCompletedChanged,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsEntry {
+  const _SettingsEntry(this.id, this.title, this.icon);
+  final String id, title;
+  final IconData icon;
+}
+
+class _SettingsDetailPage extends StatefulWidget {
+  const _SettingsDetailPage({
+    required this.section,
+    required this.statusLabel,
+    required this.desktopReady,
+    required this.models,
+    required this.selectedModel,
+    required this.selectedEffort,
+    required this.mode,
+    required this.projects,
+    required this.selectedProjectId,
+    required this.themeMode,
+    required this.voiceInputEnabled,
+    required this.autoSendVoice,
+    required this.voiceLanguage,
+    required this.responseStyle,
+    required this.showReasoningSummaries,
+    required this.collapseCompletedTurns,
+    required this.onPair,
+    required this.onThemeModeChanged,
+    required this.onModelChanged,
+    required this.onEffortChanged,
+    required this.onModeChanged,
+    required this.onProjectChanged,
+    required this.onVoiceInputChanged,
+    required this.onAutoSendVoiceChanged,
+    required this.onVoiceLanguageChanged,
+    required this.onResponseStyleChanged,
+    required this.onShowReasoningChanged,
+    required this.onCollapseCompletedChanged,
+  });
+
+  final String section, statusLabel, mode, voiceLanguage;
+  final String responseStyle;
+  final bool desktopReady, voiceInputEnabled, autoSendVoice;
+  final bool showReasoningSummaries, collapseCompletedTurns;
+  final List<dynamic> models, projects;
+  final String? selectedModel, selectedEffort, selectedProjectId;
+  final ThemeMode themeMode;
+  final VoidCallback onPair;
+  final ValueChanged<ThemeMode>? onThemeModeChanged;
+  final ValueChanged<String?> onModelChanged, onEffortChanged;
+  final ValueChanged<String> onModeChanged, onProjectChanged;
+  final ValueChanged<bool> onVoiceInputChanged, onAutoSendVoiceChanged;
+  final ValueChanged<String> onVoiceLanguageChanged;
+  final ValueChanged<String> onResponseStyleChanged;
+  final ValueChanged<bool> onShowReasoningChanged, onCollapseCompletedChanged;
+
+  @override
+  State<_SettingsDetailPage> createState() => _SettingsDetailPageState();
+}
+
+class _SettingsDetailPageState extends State<_SettingsDetailPage> {
+  late ThemeMode themeMode = widget.themeMode;
+  late bool voiceInputEnabled = widget.voiceInputEnabled;
+  late bool autoSendVoice = widget.autoSendVoice;
+  late String voiceLanguage = widget.voiceLanguage;
+  late bool showReasoningSummaries = widget.showReasoningSummaries;
+  late bool collapseCompletedTurns = widget.collapseCompletedTurns;
+  Future<_StorageUsage>? storageUsage;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.section == 'storage') storageUsage = readStorageUsage();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppLocalizations.of(context);
+    final title = switch (widget.section) {
+      'general' => strings.general,
+      'appearance' => strings.appearance,
+      'voice' => strings.voice,
+      'storage' => strings.storage,
+      'configuration' => strings.configuration,
+      'personalization' => strings.personalization,
+      'git' => strings.git,
+      _ => strings.worktrees,
+    };
+    return Scaffold(
+      appBar: AppBar(title: Text(title), leading: const BackButton()),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+        children: [
+          if (widget.section == 'general') _general(strings),
+          if (widget.section == 'appearance') _appearance(strings),
+          if (widget.section == 'voice') _voice(strings),
+          if (widget.section == 'storage') _storage(strings),
+          if (widget.section == 'configuration') _configuration(strings),
+          if (widget.section == 'personalization') _personalization(strings),
+          if (widget.section == 'git') _git(strings),
+          if (widget.section == 'worktrees') _worktrees(strings),
+        ],
+      ),
+    );
+  }
+
+  Widget _heading(String title, String description) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 6),
+        Text(
+          description,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            height: 1.4,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _panel({required List<Widget> children}) => Card(
+    margin: EdgeInsets.zero,
+    elevation: 0,
+    color: Theme.of(context).colorScheme.surfaceContainerHighest
+        .withValues(alpha: .38),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+    child: Padding(
+      padding: const EdgeInsets.all(8),
+      child: Column(children: children),
+    ),
+  );
+
+  Widget _general(AppLocalizations strings) {
+    final modelOptions = widget.models
+        .whereType<Map>()
+        .map((value) => (value['model'] ?? value['id'])?.toString())
+        .whereType<String>()
+        .where((value) => value.isNotEmpty)
+        .toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _heading(strings.general, strings.computerSettingsDescription),
+        _panel(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.computer_outlined),
+              title: Text(strings.connectedComputer),
+              subtitle: Text('${strings.bridgeStatus}: ${widget.statusLabel}'),
+              trailing: OutlinedButton(
+                onPressed: widget.onPair,
+                child: Text(
+                  widget.desktopReady ? strings.settings : strings.pairComputer,
+                ),
+              ),
+              onTap: widget.onPair,
+            ),
+            const Divider(height: 12),
+            if (modelOptions.isEmpty)
+              ListTile(
+                leading: const Icon(Icons.smart_toy_outlined),
+                title: Text(strings.defaultModel),
+                subtitle: Text(strings.noContent),
+              )
+            else
+              DropdownButtonFormField<String>(
+                initialValue: modelOptions.contains(widget.selectedModel)
+                    ? widget.selectedModel
+                    : modelOptions.first,
+                decoration: InputDecoration(labelText: strings.defaultModel),
+                items: [
+                  for (final value in modelOptions)
+                    DropdownMenuItem(value: value, child: Text(value)),
+                ],
+                onChanged: (value) {
+                  widget.onModelChanged(value);
+                  setState(() {});
+                },
+              ),
+          ],
+        ),
+        const SizedBox(height: 14),
+        _info(strings.desktopManagedHint),
+      ],
+    );
+  }
+
+  Widget _appearance(AppLocalizations strings) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _heading(strings.appearance, strings.mobileSettingsDescription),
+      _panel(
+        children: [
+          RadioGroup<ThemeMode>(
+            groupValue: themeMode,
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() => themeMode = value);
+              widget.onThemeModeChanged?.call(value);
+            },
+            child: Column(
+              children: [
+                for (final entry in <(ThemeMode, String)>[
+                  (ThemeMode.system, strings.systemTheme),
+                  (ThemeMode.light, strings.lightTheme),
+                  (ThemeMode.dark, strings.darkTheme),
+                ])
+                  RadioListTile<ThemeMode>(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                    title: Text(entry.$2),
+                    value: entry.$1,
+                  ),
+              ],
+            ),
+          ),
+          const Divider(height: 12),
+          SwitchListTile.adaptive(
+            title: Text(strings.showReasoningSummaries),
+            subtitle: Text(strings.showReasoningSummariesHint),
+            value: showReasoningSummaries,
+            onChanged: (value) {
+              setState(() => showReasoningSummaries = value);
+              widget.onShowReasoningChanged(value);
+            },
+          ),
+          SwitchListTile.adaptive(
+            title: Text(strings.collapseCompletedTurns),
+            subtitle: Text(strings.collapseCompletedTurnsHint),
+            value: collapseCompletedTurns,
+            onChanged: (value) {
+              setState(() => collapseCompletedTurns = value);
+              widget.onCollapseCompletedChanged(value);
+            },
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      _info(strings.themeHint),
+    ],
+  );
+
+  Widget _voice(AppLocalizations strings) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _heading(strings.voice, strings.mobileSettingsDescription),
+      _panel(
+        children: [
+          SwitchListTile.adaptive(
+            title: Text(strings.voiceInput),
+            subtitle: Text(strings.voiceInputHint),
+            value: voiceInputEnabled,
+            onChanged: (value) {
+              setState(() => voiceInputEnabled = value);
+              widget.onVoiceInputChanged(value);
+            },
+          ),
+          SwitchListTile.adaptive(
+            title: Text(strings.autoSendVoice),
+            subtitle: Text(strings.autoSendVoiceHint),
+            value: autoSendVoice,
+            onChanged: voiceInputEnabled
+                ? (value) {
+                    setState(() => autoSendVoice = value);
+                    widget.onAutoSendVoiceChanged(value);
+                  }
+                : null,
+          ),
+          ListTile(
+            title: Text(strings.voiceLanguage),
+            trailing: DropdownButton<String>(
+              value: voiceLanguage,
+              underline: const SizedBox.shrink(),
+              items: [
+                DropdownMenuItem(
+                  value: 'auto',
+                  child: Text(strings.voiceLanguageAuto),
+                ),
+                DropdownMenuItem(
+                  value: 'zh',
+                  child: Text(strings.voiceLanguageChinese),
+                ),
+                DropdownMenuItem(
+                  value: 'en',
+                  child: Text(strings.voiceLanguageEnglish),
+                ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => voiceLanguage = value);
+                widget.onVoiceLanguageChanged(value);
+              },
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      _info(strings.settingsSavedLocally),
+    ],
+  );
+
+  Widget _storage(AppLocalizations strings) {
+    final usageFuture = storageUsage;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _heading(strings.storage, strings.mobileSettingsDescription),
+        if (usageFuture == null)
+          const SizedBox.shrink()
+        else
+          FutureBuilder<_StorageUsage>(
+            future: usageFuture,
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              }
+              final usage = snapshot.data!;
+              return _panel(
+                children: [
+                  _usageTile(strings.appData, usage.appData),
+                  _usageTile(strings.temporaryFiles, usage.temporaryFiles),
+                  const Divider(height: 12),
+                  ListTile(
+                    leading: const Icon(Icons.cleaning_services_outlined),
+                    title: Text(strings.clearTemporaryFiles),
+                    subtitle: Text(strings.clearTemporaryFilesHint),
+                    onTap: usage.temporaryFiles == 0
+                        ? null
+                        : () async {
+                            final messenger = ScaffoldMessenger.of(context);
+                            await clearTemporaryFiles();
+                            if (!mounted) return;
+                            setState(() => storageUsage = readStorageUsage());
+                            messenger.showSnackBar(
+                              SnackBar(content: Text(strings.storageCleared)),
+                            );
+                          },
+                  ),
+                ],
+              );
+            },
+          ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: () => setState(() => storageUsage = readStorageUsage()),
+          icon: const Icon(Icons.refresh_rounded, size: 17),
+          label: Text(strings.refreshStorage),
+        ),
+      ],
+    );
+  }
+
+  Widget _usageTile(String title, int bytes) => ListTile(
+    leading: const Icon(Icons.data_usage_outlined),
+    title: Text(title),
+    trailing: Text(
+      formatBytes(bytes),
+      style: const TextStyle(fontWeight: FontWeight.w700),
+    ),
+  );
+
+  Widget _configuration(AppLocalizations strings) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _heading(strings.configuration, strings.computerSettingsDescription),
+      _panel(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.route_outlined),
+            title: Text(strings.defaultMode),
+            trailing: DropdownButton<String>(
+              value: widget.mode,
+              underline: const SizedBox.shrink(),
+              items: [
+                DropdownMenuItem(
+                  value: 'default',
+                  child: Text(strings.defaultMode),
+                ),
+                DropdownMenuItem(value: 'plan', child: Text(strings.planMode)),
+              ],
+              onChanged: (value) {
+                if (value != null) widget.onModeChanged(value);
+              },
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.speed_outlined),
+            title: Text(strings.effort),
+            subtitle: Text(strings.desktopManagedHint),
+            trailing: _effortDropdown(strings),
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Widget _effortDropdown(AppLocalizations strings) {
+    final selected = widget.models
+        .whereType<Map>()
+        .where(
+          (value) =>
+              value['model'] == widget.selectedModel ||
+              value['id'] == widget.selectedModel,
+        )
+        .firstOrNull;
+    final efforts = (selected?['supportedReasoningEfforts'] as List? ?? [])
+        .map(
+          (value) => value is Map
+              ? value['reasoningEffort']?.toString()
+              : value?.toString(),
+        )
+        .whereType<String>()
+        .where((value) => value.isNotEmpty)
+        .toList();
+    if (efforts.isEmpty) {
+      return Text(widget.selectedEffort ?? strings.defaultMode);
+    }
+    return DropdownButton<String>(
+      value: efforts.contains(widget.selectedEffort)
+          ? widget.selectedEffort
+          : null,
+      hint: Text(widget.selectedEffort ?? strings.effort),
+      underline: const SizedBox.shrink(),
+      items: [
+        for (final value in efforts)
+          DropdownMenuItem(value: value, child: Text(value)),
+      ],
+      onChanged: widget.onEffortChanged,
+    );
+  }
+
+  Widget _personalization(AppLocalizations strings) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _heading(strings.personalization, strings.computerSettingsDescription),
+      _panel(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.person_outline_rounded),
+            title: Text(strings.personalization),
+            subtitle: Text(strings.desktopManagedHint),
+            trailing: DropdownButton<String>(
+              value: widget.responseStyle,
+              underline: const SizedBox.shrink(),
+              items: [
+                DropdownMenuItem(
+                  value: 'none',
+                  child: Text(strings.responseStyleNone),
+                ),
+                DropdownMenuItem(
+                  value: 'friendly',
+                  child: Text(strings.responseStyleFriendly),
+                ),
+                DropdownMenuItem(
+                  value: 'pragmatic',
+                  child: Text(strings.responseStylePragmatic),
+                ),
+              ],
+              onChanged: (value) {
+                if (value != null) widget.onResponseStyleChanged(value);
+              },
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.info_outline_rounded),
+            title: Text(strings.responseStyle),
+            subtitle: Text(strings.responseStyleHint),
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Widget _git(AppLocalizations strings) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _heading(strings.git, strings.computerSettingsDescription),
+      _panel(
+        children: [
+          ListTile(
+            leading: const Icon(Icons.account_tree_outlined),
+            title: Text(strings.currentWorkspace),
+            subtitle: Text(_selectedProjectLabel(strings)),
+          ),
+          ListTile(
+            leading: const Icon(Icons.info_outline_rounded),
+            title: Text(strings.git),
+            subtitle: Text(strings.desktopSettingsReadOnly),
+          ),
+        ],
+      ),
+    ],
+  );
+
+  Widget _worktrees(AppLocalizations strings) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _heading(strings.worktrees, strings.computerSettingsDescription),
+      if (widget.projects.isEmpty)
+        _panel(children: [ListTile(title: Text(strings.noWorkspace))])
+      else
+        _panel(
+          children: [
+            for (final project in widget.projects.whereType<Map>())
+              ListTile(
+                leading: const Icon(Icons.folder_outlined),
+                title: Text(
+                  project['label']?.toString() ??
+                      project['projectId']?.toString() ??
+                      strings.noWorkspace,
+                ),
+                subtitle: project['branch'] == null
+                    ? null
+                    : Text(project['branch'].toString()),
+                trailing: project['projectId'] == widget.selectedProjectId
+                    ? const Icon(Icons.check_rounded, size: 19)
+                    : null,
+                onTap: project['projectId'] is String
+                    ? () => widget.onProjectChanged(
+                        project['projectId'] as String,
+                      )
+                    : null,
+              ),
+          ],
+        ),
+    ],
+  );
+
+  String _selectedProjectLabel(AppLocalizations strings) {
+    final project = widget.projects
+        .whereType<Map>()
+        .where((value) => value['projectId'] == widget.selectedProjectId)
+        .firstOrNull;
+    return project?['label']?.toString() ??
+        widget.selectedProjectId ??
+        strings.noWorkspace;
+  }
+
+  Widget _info(String text) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 4),
+    child: Text(
+      text,
+      style: TextStyle(
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+        fontSize: 12,
+        height: 1.35,
+      ),
+    ),
+  );
+
+  Future<_StorageUsage> readStorageUsage() async {
+    try {
+      final app = await getApplicationSupportDirectory();
+      final temporary = await getTemporaryDirectory();
+      return _StorageUsage(
+        appData: await directorySize(app),
+        temporaryFiles: await directorySize(temporary),
+      );
+    } catch (_) {
+      return const _StorageUsage(appData: 0, temporaryFiles: 0);
+    }
+  }
+
+  Future<void> clearTemporaryFiles() async {
+    final directory = await getTemporaryDirectory();
+    if (!await directory.exists()) return;
+    for (final entity in directory.listSync()) {
+      try {
+        await entity.delete(recursive: true);
+      } catch (_) {}
+    }
+  }
+}
+
+class _StorageUsage {
+  const _StorageUsage({required this.appData, required this.temporaryFiles});
+  final int appData, temporaryFiles;
+}
+
+Future<int> directorySize(Directory directory) async {
+  if (!await directory.exists()) return 0;
+  var total = 0;
+  await for (final entity in directory.list(
+    recursive: true,
+    followLinks: false,
+  )) {
+    if (entity is File) {
+      try {
+        total += await entity.length();
+      } catch (_) {}
+    }
+  }
+  return total;
+}
+
+String formatBytes(int bytes) {
+  if (bytes < 1024) return '$bytes B';
+  if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+  if (bytes < 1024 * 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
 }
 
 class _SuggestionRow extends StatelessWidget {
@@ -2335,9 +3485,9 @@ class _Composer extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(13, 0, 13, 10),
       child: Container(
+        key: const ValueKey('composer-shell'),
         decoration: BoxDecoration(
-          color: _panel,
-          border: Border.all(color: const Color(0xffdeded9)),
+          color: Theme.of(context).cardColor,
           borderRadius: BorderRadius.circular(18),
         ),
         clipBehavior: Clip.antiAlias,

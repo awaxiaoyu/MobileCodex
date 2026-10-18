@@ -39,7 +39,7 @@ export function validateEnvelope(raw: any): Envelope {
 
 const rules: Record<string, { schema: string; fields: string[] }> = {
   'model/list': { schema: 'ModelListParams', fields: ['cursor', 'limit'] },
-  'turn/start': { schema: 'TurnStartParams', fields: ['threadId', 'input', 'model', 'effort', 'collaborationMode'] },
+  'turn/start': { schema: 'TurnStartParams', fields: ['threadId', 'input', 'model', 'effort', 'personality', 'collaborationMode'] },
   'turn/steer': { schema: 'TurnSteerParams', fields: ['threadId', 'expectedTurnId', 'input'] },
   'turn/interrupt': { schema: 'TurnInterruptParams', fields: ['threadId', 'turnId'] },
 };
