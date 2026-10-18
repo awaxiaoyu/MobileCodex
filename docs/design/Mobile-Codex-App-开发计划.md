@@ -119,7 +119,8 @@ P0 验证：
 ## 7. 最小项目结构
 
 ```text
-apps/mobile/           设备、项目/聊天、任务、审批、diff/结果
+apps/android/          Android Flutter 设备、项目/聊天、任务、审批、diff/结果
+apps/ios/              iOS 原生 SwiftUI 设备、项目/聊天、任务与审批
 apps/bridge/           配对、registry、backend 身份、请求与事件
 packages/protocol/     envelope、手机 view models、版本类型
 adapters/app-server/   保留范围需要的原方法

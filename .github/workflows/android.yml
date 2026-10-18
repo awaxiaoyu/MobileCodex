@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - "apps/mobile/**"
+      - "apps/android/**"
       - "package.json"
       - "package-lock.json"
       - "pnpm-lock.yaml"
@@ -64,15 +64,15 @@ jobs:
           flutter-version: "3.47.7"
           channel: stable
           cache: true
-          cache-key: flutter-${{ runner.os }}-${{ hashFiles('apps/mobile/pubspec.lock') }}
+          cache-key: flutter-${{ runner.os }}-${{ hashFiles('apps/android/pubspec.lock') }}
           cache-path: ${{ runner.tool_cache }}/flutter
 
       - name: Install Flutter dependencies
-        working-directory: apps/mobile
+        working-directory: apps/android
         run: flutter pub get
 
       - name: Analyze and test Flutter app
-        working-directory: apps/mobile
+        working-directory: apps/android
         run: |
           flutter analyze
           flutter test
@@ -96,7 +96,7 @@ jobs:
           exit 1
 
       - name: Build debug APK
-        working-directory: apps/mobile
+        working-directory: apps/android
         run: |
           sed -i 's/-Xmx8G -XX:MaxMetaspaceSize=4G/-Xmx4G -XX:MaxMetaspaceSize=2G/' android/gradle.properties
           flutter build apk --debug --split-per-abi
@@ -105,6 +105,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mobile-codex-debug-apk-x86_64
-          path: apps/mobile/build/app/outputs/flutter-apk/app-x86_64-debug.apk
+          path: apps/android/build/app/outputs/flutter-apk/app-x86_64-debug.apk
           if-no-files-found: error
           retention-days: 14

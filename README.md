@@ -1,6 +1,6 @@
 # MobileCodex
 
-通过 Windows Bridge，在手机上继续当前 Codex Desktop 的聊天与任务。已经实现无需 CDP、无需重启的持续 Frida injection，以及 Flutter Android/iOS 客户端第一版。
+通过 Windows Bridge，在手机上继续当前 Codex Desktop 的聊天与任务。已经实现无需 CDP、无需重启的持续 Frida injection，以及独立的 Flutter Android 客户端和 SwiftUI iOS 客户端。
 
 ## 当前状态
 
@@ -14,7 +14,7 @@
 | command/file/permission/MCP 请求及审批仲裁 | 已实现；通用仲裁模拟测试通过，真实验收目前覆盖用户问题 |
 | 配对、认证 WSS、证书 pinning、撤销 | Node/Dart 真实本机传输测试通过 |
 | 有界事件缓存、重连、任务附件引用与下载 | 实现完成，核心模拟测试通过；真实手机断线/下载待验收 |
-| Flutter 聊天/项目选择、model/effort/Plan、问题/审批、Diff/附件分享 | analyze、widget/连接测试及 Android assets bundle 编译通过 |
+| Android Flutter 聊天/项目选择、model/effort/Plan、问题/审批、Diff/附件分享；iOS SwiftUI 聊天与配对 | Android analyze、widget/连接测试及 assets bundle 编译通过 |
 | Android APK | GitHub Actions Ubuntu runner 构建通过，debug APK 已下载；实体手机待验收 |
 
 Terminal、通用文件系统、IDE、Worktree/Git 管理器、Browser 控制、Desktop 布局仍按范围裁剪留在电脑。手机发送任务时，Agent 继续使用电脑原工具和权限。
@@ -115,7 +115,7 @@ node scripts/smoke-frida.ts
 # 以下两个脚本会创建/使用专用 Desktop 测试聊天并消耗模型额度。
 node scripts/smoke-turn.ts
 node scripts/smoke-plan.ts
-.local/flutter/bin/flutter.bat analyze --no-pub apps/mobile
+.local/flutter/bin/flutter.bat analyze --no-pub apps/android
 ```
 
 `pnpm benchmark` 会将 Bridge、NativePipe、WSS 和 Frida 调度的样本、p50/p95/p99、吞吐和 Node CPU 时间写入 `.local/benchmarks/`。NativePipe/WSS 默认使用本机 fixture；Frida 只有设置 `MOBILE_CODEX_BENCH_FRIDA=1` 才会连接运行中的 Desktop。迁移到 C++ `bridge_core` 前应先取得真实 Desktop 数据并重复确认热点，当前仓库没有可替换的 Bridge DLL。
@@ -135,17 +135,17 @@ powershell -NoProfile -File dist/MobileCodexBridge/Start-MobileCodexBridge.ps1 -
 
 EXE 仍需本机安装并运行兼容版本的 Codex Desktop；当前 Frida adapter 只接受已验证的 Desktop `26.1007.21434` runtime。该打包方式不会替换或修改 Codex 安装，也没有把 Codex token、密码或私钥打进 EXE。
 
-Flutter 在 `apps/mobile` 下运行 `flutter test`、`flutter build bundle --target-platform android-arm64`、`flutter build apk --debug`。本机 Gradle distribution 下载曾超时，Android APK 已改由 GitHub Actions 成功打包；iOS 需要 macOS/Xcode 构建。
+Android Flutter 工程在 `apps/android` 下运行 `flutter test`、`flutter build bundle --target-platform android-arm64`、`flutter build apk --debug`。iOS 是独立的原生 SwiftUI 工程，在 `apps/ios/Runner.xcodeproj` 下使用 Xcode 构建。
 
 ### GitHub Actions Android 构建
 
-仓库的 `Android APK` workflow 使用 GitHub-hosted Ubuntu runner，依次执行 Node bridge 的 typecheck/test、Flutter analyze/test，并上传 `mobile-codex-debug-apk` artifact（保留 14 天）。推送到 `main`（涉及 Bridge 或 Android 文件时）会自动构建，也可以在 GitHub Actions 页面用 `Run workflow` 手动触发。APK 输出路径为 `apps/mobile/build/app/outputs/flutter-apk/app-debug.apk`。
+仓库的 `Android APK` workflow 使用 GitHub-hosted Ubuntu runner，依次执行 Node bridge 的 typecheck/test、Flutter analyze/test，并上传 `mobile-codex-debug-apk` artifact（保留 14 天）。推送到 `main`（涉及 Bridge 或 Android 文件时）会自动构建，也可以在 GitHub Actions 页面用 `Run workflow` 手动触发。APK 输出路径为 `apps/android/build/app/outputs/flutter-apk/app-debug.apk`。
 
 [首次成功构建](https://github.com/awaxiaoyu/MobileCodex/actions/runs/38661032222) 用时 8 分 55 秒。下载后的本地 APK 在 `.local/artifacts/android-debug/app-debug.apk`；artifact 校验和见 [构建记录](docs/evidence/android-ci-build.json)。这是 debug 签名的测试安装包，尚未完成实体手机验收。
 
 ### GitHub Actions iOS 构建
 
-`.github/workflows/ios.yml` 使用 GitHub-hosted `macos-15` runner，依次执行 Node bridge 的 typecheck/test、Flutter analyze/test，并运行 `flutter build ipa --release --no-codesign`。推送到 `main`（涉及 Bridge 或 iOS 文件时）会自动构建，也可以在 GitHub Actions 页面用 `Run workflow` 手动触发。构建会上传 `mobile-codex-ios-unsigned-ipa` 和 `mobile-codex-ios-xcarchive` 两个 artifact，各保留 14 天。
+`.github/workflows/ios.yml` 使用 GitHub-hosted `macos-latest` runner，执行 Node bridge 的 typecheck/test，然后用 `xcodebuild` 构建独立的 SwiftUI iOS archive。推送到 `main`（涉及 Bridge 或 iOS 文件时）会自动构建，也可以在 GitHub Actions 页面用 `Run workflow` 手动触发。构建会上传 `mobile-codex-ios-unsigned-ipa` 和 `mobile-codex-ios-xcarchive` 两个 artifact，各保留 14 天。
 
 当前仓库没有 Apple Distribution certificate 或 provisioning profile，因此 IPA 是 unsigned，不能直接安装到真机或提交 App Store；需要发布签名时，在 workflow 中增加 Apple signing secrets 和 export options。
 

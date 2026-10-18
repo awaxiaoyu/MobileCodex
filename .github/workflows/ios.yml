@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - "apps/mobile/**"
+      - "apps/ios/**"
       - "package.json"
       - "package-lock.json"
       - "pnpm-lock.yaml"
@@ -49,56 +49,24 @@ jobs:
           pnpm typecheck
           pnpm test
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.47.7"
-          channel: stable
-          cache: true
-          cache-key: flutter-${{ runner.os }}-${{ hashFiles('apps/mobile/pubspec.lock') }}
-          cache-path: ${{ runner.tool_cache }}/flutter
-
-      - name: Install Flutter dependencies
-        working-directory: apps/mobile
-        run: flutter pub get
-
-      - name: Analyze and test Flutter app
-        working-directory: apps/mobile
-        run: |
-          flutter analyze
-          flutter test
-
   build:
     needs: test
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: "3.47.7"
-          channel: stable
-          cache: true
-          cache-key: flutter-${{ runner.os }}-${{ hashFiles('apps/mobile/pubspec.lock') }}
-          cache-path: ${{ runner.tool_cache }}/flutter
-
-      - name: Install Flutter dependencies
-        working-directory: apps/mobile
-        run: flutter pub get
-
       - name: Build unsigned iOS archive
-        working-directory: apps/mobile
-        run: flutter build ipa --release --no-codesign
+        working-directory: apps/ios
+        run: xcodebuild -project Runner.xcodeproj -scheme Runner -configuration Release -sdk iphoneos -archivePath build/Runner.xcarchive archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
       - name: Package unsigned iOS IPA
-        working-directory: apps/mobile
+        working-directory: apps/ios
         shell: bash
         run: |
           set -euo pipefail
-          app_path="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
+          app_path="build/Runner.xcarchive/Products/Applications/Runner.app"
           test -d "$app_path"
           mkdir -p build/ios/ipa/Payload
           ditto "$app_path" build/ios/ipa/Payload/Runner.app
@@ -108,7 +76,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mobile-codex-ios-unsigned-ipa
-          path: apps/mobile/build/ios/ipa/*.ipa
+          path: apps/ios/build/ios/ipa/*.ipa
           if-no-files-found: error
           retention-days: 14
 
@@ -116,6 +84,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mobile-codex-ios-xcarchive
-          path: apps/mobile/build/ios/archive/*.xcarchive
+          path: apps/ios/build/*.xcarchive
           if-no-files-found: error
           retention-days: 14

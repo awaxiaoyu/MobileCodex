@@ -1,0 +1,6 @@
+.build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.moved-aside
+*.swp
