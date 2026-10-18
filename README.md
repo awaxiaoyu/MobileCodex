@@ -143,6 +143,12 @@ Flutter 在 `apps/mobile` 下运行 `flutter test`、`flutter build bundle --tar
 
 [首次成功构建](https://github.com/awaxiaoyu/MobileCodex/actions/runs/38661032222) 用时 8 分 55 秒。下载后的本地 APK 在 `.local/artifacts/android-debug/app-debug.apk`；artifact 校验和见 [构建记录](docs/evidence/android-ci-build.json)。这是 debug 签名的测试安装包，尚未完成实体手机验收。
 
+### GitHub Actions iOS 构建
+
+`.github/workflows/ios.yml` 使用 GitHub-hosted `macos-15` runner，依次执行 Node bridge 的 typecheck/test、Flutter analyze/test，并运行 `flutter build ipa --release --no-codesign`。推送到 `main`（涉及 Bridge 或 iOS 文件时）会自动构建，也可以在 GitHub Actions 页面用 `Run workflow` 手动触发。构建会上传 `mobile-codex-ios-unsigned-ipa` 和 `mobile-codex-ios-xcarchive` 两个 artifact，各保留 14 天。
+
+当前仓库没有 Apple Distribution certificate 或 provisioning profile，因此 IPA 是 unsigned，不能直接安装到真机或提交 App Store；需要发布签名时，在 workflow 中增加 Apple signing secrets 和 export options。
+
 - [实测记录](docs/p0-verification.md)
 - [后续验收](docs/NEXT.md)
 - [手机功能范围](docs/design/Mobile-Codex-手机功能范围.md)

@@ -1,0 +1,101 @@
+name: iOS App
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "apps/mobile/**"
+      - "package.json"
+      - "package-lock.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "src/**"
+      - "tests/**"
+      - ".github/workflows/ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and test bridge
+        run: |
+          pnpm typecheck
+          pnpm test
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.47.7"
+          channel: stable
+          cache: true
+          cache-key: flutter-${{ runner.os }}-${{ hashFiles('apps/mobile/pubspec.lock') }}
+          cache-path: ${{ runner.tool_cache }}/flutter
+
+      - name: Install Flutter dependencies
+        working-directory: apps/mobile
+        run: flutter pub get
+
+      - name: Analyze and test Flutter app
+        working-directory: apps/mobile
+        run: |
+          flutter analyze
+          flutter test
+
+      - name: Build unsigned iOS archive
+        working-directory: apps/mobile
+        run: flutter build ipa --release --no-codesign
+
+      - name: Package unsigned iOS IPA
+        working-directory: apps/mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app"
+          test -d "$app_path"
+          mkdir -p build/ios/ipa/Payload
+          ditto "$app_path" build/ios/ipa/Payload/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent build/ios/ipa/Payload build/ios/ipa/mobile-codex-ios-unsigned.ipa
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-codex-ios-unsigned-ipa
+          path: apps/mobile/build/ios/ipa/*.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Xcode archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-codex-ios-xcarchive
+          path: apps/mobile/build/ios/archive/*.xcarchive
+          if-no-files-found: error
+          retention-days: 14

@@ -14,3 +14,5 @@ Flutter Android/iOS 首版。连接自有 Windows Bridge，在手机继续 Deskt
 ```
 
 本机 analyze、两项测试和 Android assets bundle 编译通过。debug APK 因 Gradle 下载超时尚未生成；实体手机及 iOS 构建尚未验收。首版没有后台推送、relay、文件树或 Terminal 页面。
+
+GitHub Actions 的 `iOS App` workflow 在 macOS runner 上构建 unsigned IPA 和 Xcode archive。仓库未配置 Apple signing certificate 或 provisioning profile，因此该 IPA 只能用于构建产物验证，不能直接安装到真机。
