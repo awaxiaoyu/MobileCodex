@@ -11,6 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import QRCode from 'qrcode';
+import { CodexStateProvider } from './codex-state.ts';
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'serve';
@@ -30,6 +31,7 @@ const uiSessionExpiresAt = Date.now() + 30 * 60 * 1000;
 let uiStatus: (() => Record<string, unknown>) | undefined;
 let devices: DeviceStore | undefined;
 let fridaBackend: FridaBackend | undefined;
+const codexState = new CodexStateProvider();
 const pairUrl = option('--public-url') ?? option('--pair-url') ?? process.env.MOBILE_CODEX_PUBLIC_URL ?? process.env.MOBILE_CODEX_PAIR_URL;
 const mobileUrl = () => pairUrl ?? `wss://${option('--mobile-bind') ?? '0.0.0.0'}:${Number(option('--mobile-port') ?? 37842)}/ws`;
 async function pairingPayload() {
@@ -60,7 +62,27 @@ if (args.includes('--frida')) {
   const discovered = pid ? undefined : await discoverDesktop();
   const desktopPid = pid ? Number(pid) : (discovered as any).desktop?.[0]?.ProcessId;
   if (!Number.isInteger(desktopPid) || desktopPid < 1) throw new Error('--frida could not find a Desktop Main PID; pass --pid PID');
-  fridaBackend = new FridaBackend({ workspace: resolve(workspace), pid: desktopPid, python: process.env.MOBILE_CODEX_FRIDA_PYTHON, deps: process.env.MOBILE_CODEX_FRIDA_DEPS, allowControl: args.includes('--allow-control'), settingsUi: { endpoint: `http://127.0.0.1:${adminPort}`, token: uiSession }, projectProvider: async () => toolsBackend ? await toolsBackend.call('bridge.project.list', {}) : { projects: [] }, threadProvider: async (params) => toolsBackend ? await toolsBackend.call('bridge.thread.list', params ?? {}) : { threads: [] }, settingsRequest: async (action, payload) => {
+  fridaBackend = new FridaBackend({ workspace: resolve(workspace), pid: desktopPid, python: process.env.MOBILE_CODEX_FRIDA_PYTHON, deps: process.env.MOBILE_CODEX_FRIDA_DEPS, allowControl: args.includes('--allow-control'), settingsUi: { endpoint: `http://127.0.0.1:${adminPort}`, token: uiSession }, projectProvider: async () => {
+    const state = codexState.projects();
+    if (!toolsBackend) return state;
+    try {
+      const native = await toolsBackend.call('bridge.project.list', {});
+      const projects = [...(Array.isArray(native?.projects) ? native.projects : []), ...(state.projects ?? [])];
+      return { projects: projects.filter((project: any, index: number, all: any[]) => {
+        const id = project?.projectId ?? project?.id;
+        return typeof id === 'string' && all.findIndex((candidate) => (candidate?.projectId ?? candidate?.id) === id) === index;
+      }) };
+    } catch { return state; }
+  }, threadProvider: async (params) => {
+    const state = codexState.threads(params ?? {});
+    if (!toolsBackend) return state;
+    try {
+      const native = await toolsBackend.call('bridge.thread.list', params ?? {});
+      const nativeThreads = Array.isArray(native?.threads) ? native.threads : [];
+      const stateThreads = Array.isArray(state.threads) ? state.threads : [];
+      return { ...native, threads: [...nativeThreads, ...stateThreads] };
+    } catch { return state; }
+  }, settingsRequest: async (action, payload) => {
     if (action === 'status') return uiStatus?.() ?? bridge.uiStatus();
     if (action === 'pairing') return await pairingPayload();
     if (action === 'revoke') { if (!devices || typeof payload.deviceId !== 'string') throw new Error('deviceId is required'); await devices.revoke(payload.deviceId); return { revoked: true }; }

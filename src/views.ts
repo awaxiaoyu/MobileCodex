@@ -4,14 +4,8 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 // filesystem metadata, credentials, and low-level tool payloads.
 export function threadView(thread: any) {
   const t = thread ?? {};
-  const projectId = typeof t.projectId === 'string'
-    ? t.projectId
-    : typeof t.project?.projectId === 'string'
-      ? t.project.projectId
-      : typeof t.project?.id === 'string'
-        ? t.project.id
-        : undefined;
-  const pinned = t.pinned === true || t.isPinned === true || t.pinnedSummary === true;
+  const projectId = projectIdValue(t);
+  const pinned = isPinnedValue(t);
   const preview = [t.preview, t.summary, t.firstUserMessage, t.lastMessage]
     .find((value) => typeof value === 'string' && value.trim().length > 0);
   return {
@@ -46,15 +40,19 @@ export function mergeThreadViews(nativeThreads: any[], sidebar: any, roots: Map<
     threads.set(view.id, { ...view, ...(projectId ? { projectId } : {}) });
   }
 
-  const pinnedEntries = Array.isArray(sidebar?.pinnedThreads) ? sidebar.pinnedThreads : [];
+  const sidebarRoot = sidebar?.data && typeof sidebar.data === 'object' && !Array.isArray(sidebar.data)
+    ? sidebar.data
+    : sidebar;
+  const pinnedEntries = firstArray(sidebarRoot, ['pinnedThreads', 'pinned', 'pinnedSummaries', 'pinnedChats']);
   const pinnedIds = new Set<string>(
     pinnedEntries
       .map((entry: any) => typeof entry === 'string' ? entry : entry?.id ?? entry?.threadId)
       .filter((id: any): id is string => typeof id === 'string'),
   );
   const sidebarThreads = [
-    ...(Array.isArray(sidebar?.threads) ? sidebar.threads : Array.isArray(sidebar) ? sidebar : []),
-    ...(Array.isArray(sidebar?.data) ? sidebar.data : []),
+    ...(Array.isArray(sidebarRoot) ? sidebarRoot : []),
+    ...firstArray(sidebarRoot, ['threads', 'recent', 'recentThreads', 'chats', 'conversations']),
+    ...projectThreads(sidebarRoot),
     ...pinnedEntries.filter((entry: any) => entry && typeof entry === 'object' && !Array.isArray(entry)),
   ];
 
@@ -79,13 +77,7 @@ export function mergeThreadViews(nativeThreads: any[], sidebar: any, roots: Map<
 }
 
 export function projectIdForThread(thread: any, roots: Map<string, string>) {
-  const direct = typeof thread?.projectId === 'string'
-    ? thread.projectId
-    : typeof thread?.project?.projectId === 'string'
-      ? thread.project.projectId
-      : typeof thread?.project?.id === 'string'
-        ? thread.project.id
-        : undefined;
+  const direct = projectIdValue(thread);
   if (direct) {
     return direct;
   }
@@ -93,14 +85,55 @@ export function projectIdForThread(thread: any, roots: Map<string, string>) {
 
   let match: { projectId: string; length: number } | undefined;
   for (const [projectId, projectRoot] of roots) {
-    const root = resolve(projectRoot);
-    const pathFromRoot = relative(root, resolve(thread.cwd));
+    const root = resolve(normalizeNativePath(projectRoot));
+    const cwd = resolve(normalizeNativePath(thread.cwd));
+    const pathFromRoot = relative(root, cwd);
     const outside = pathFromRoot === '..' || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot);
     if (outside) continue;
     const length = root.length;
     if (!match || length > match.length) match = { projectId, length };
   }
   return match?.projectId;
+}
+
+function normalizeNativePath(value: string) {
+  if (process.platform !== 'win32') return value;
+  return value.replace(/^\\\\\?\\UNC\\/i, '\\\\').replace(/^\\\\\?\\/, '');
+}
+
+function firstArray(value: any, keys: string[]) {
+  for (const key of keys) if (Array.isArray(value?.[key])) return value[key];
+  return [];
+}
+
+function projectThreads(value: any): any[] {
+  const groups = firstArray(value, ['projects', 'projectGroups', 'byProject']);
+  const result: any[] = [];
+  for (const group of groups) {
+    if (Array.isArray(group)) result.push(...group);
+    else if (group && typeof group === 'object') {
+      const project = group.project ?? group.projectId ?? group.id;
+      for (const thread of firstArray(group, ['threads', 'chats', 'conversations'])) {
+        result.push(project && typeof thread === 'object' && !thread.project && !thread.projectId
+          ? { ...thread, project: typeof project === 'object' ? project : { id: project } }
+          : thread);
+      }
+    }
+  }
+  return result;
+}
+
+function projectIdValue(thread: any): string | undefined {
+  const value = thread?.projectId ?? thread?.project?.projectId ?? thread?.project?.id ??
+    thread?.project?.slug ?? thread?.project?.path ?? thread?.projectRoot ?? thread?.workspaceId;
+  if (typeof value === 'string' && value.trim()) return value;
+  if (typeof thread?.project === 'string' && thread.project.trim()) return thread.project;
+  return undefined;
+}
+
+function isPinnedValue(thread: any): boolean {
+  return thread?.pinned === true || thread?.isPinned === true || thread?.pinnedSummary === true ||
+    thread?.is_pinned === true || thread?.pin === true;
 }
 
 export function mobileNotification(message: any): { method: string; data: any } | undefined {

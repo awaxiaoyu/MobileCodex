@@ -60,6 +60,7 @@ class AppLocalizations {
   String get untitledChat => t('untitledChat');
   String get newChat => t('newChat');
   String get computerDisconnected => t('computerDisconnected');
+  String get desktopOffline => t('desktopOffline');
   String get taskSubmitted => t('taskSubmitted');
   String get ownAnswer => t('ownAnswer');
   String get later => t('later');
@@ -130,6 +131,7 @@ class AppLocalizations {
     'untitledChat': 'Untitled chat',
     'newChat': 'New chat',
     'computerDisconnected': 'Bridge is not connected to Codex Desktop',
+    'desktopOffline': 'Desktop offline',
     'taskSubmitted': 'Task submitted',
     'ownAnswer': 'Your answer',
     'later': 'Later',
@@ -201,6 +203,7 @@ class AppLocalizations {
     'untitledChat': '未命名聊天',
     'newChat': '新聊天',
     'computerDisconnected': 'Bridge 尚未连接 Codex Desktop',
+    'desktopOffline': '电脑端未连接',
     'taskSubmitted': '任务已提交',
     'ownAnswer': '你的回答',
     'later': '稍后',

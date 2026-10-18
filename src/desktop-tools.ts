@@ -8,7 +8,13 @@ import type { Backend, JsonObject } from './types.ts';
 
 export function toolResult(result: any) {
   if (!result?.success) throw new BridgeError('desktop.tool_failed', 'Desktop tool failed');
-  const texts = (result.contentItems ?? []).filter((item: any) => item.type === 'inputText').map((item: any) => item.text);
+  // The Desktop tool host has used both inputText and text content items.
+  // Prefer structuredContent when it is present, then fall back to the
+  // serialized content for older hosts.
+  if (result.structuredContent !== undefined) return result.structuredContent;
+  const texts = (result.contentItems ?? [])
+    .filter((item: any) => ['inputText', 'text', 'outputText'].includes(item.type) && typeof item.text === 'string')
+    .map((item: any) => item.text);
   const parsed = texts.map((text: string) => { try { return JSON.parse(text); } catch { return text; } });
   return parsed.length === 1 ? parsed[0] : parsed;
 }

@@ -35,6 +35,9 @@ export class FridaBackend extends EventEmitter implements Backend {
   private pending = new Map<string, Pending>();
   private poller?: NodeJS.Timeout;
   private draining = false;
+  private recovering = false;
+  private reconnectTimer?: NodeJS.Timeout;
+  private reconnectAttempt = 0;
   private serverRequests = new Map<NativeId, { method: string; threadId?: string }>();
   private models: any[] = [];
   private lastProbeSeq = 0;
@@ -59,18 +62,24 @@ export class FridaBackend extends EventEmitter implements Backend {
     this.status = 'connecting';
     const adapterRoot = process.env.MOBILE_CODEX_APP_ROOT ?? fileURLToPath(new URL('..', import.meta.url));
     const script = resolve(adapterRoot, 'scripts', 'frida-bridge.py');
-    this.child = spawn(this.options.python ?? process.env.MOBILE_CODEX_FRIDA_PYTHON ?? 'python', [script, '--workspace', adapterRoot, ...(this.options.pid ? ['--pid', String(this.options.pid)] : [])], {
+    const child = spawn(this.options.python ?? process.env.MOBILE_CODEX_FRIDA_PYTHON ?? 'python', [script, '--workspace', adapterRoot, ...(this.options.pid ? ['--pid', String(this.options.pid)] : [])], {
       cwd: this.options.workspace,
       env: { ...process.env, ...(this.options.deps ? { MOBILE_CODEX_FRIDA_DEPS: this.options.deps } : {}) },
       windowsHide: true,
     });
-    this.child.stderr.setEncoding('utf8');
-    this.child.stderr.on('data', (chunk) => { this.lastDiagnostic = String(chunk).slice(0, 2000); this.emit('diagnostic', this.lastDiagnostic); });
-    this.helperPid = this.child.pid;
-    const lines = createInterface({ input: this.child.stdout });
+    this.child = child;
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk) => { if (this.child === child) { this.lastDiagnostic = String(chunk).slice(0, 2000); this.emit('diagnostic', this.lastDiagnostic); } });
+    this.helperPid = child.pid;
+    const lines = createInterface({ input: child.stdout });
     lines.on('line', (line) => this.receiveLine(line));
-    this.child.on('error', (error) => this.fail(error));
-    this.child.on('exit', () => { if (this.status !== 'stopped') { this.status = 'disconnected'; this.fail(new BridgeError('backend.disconnected', 'Frida helper exited', true)); this.emit('disconnected'); } });
+    child.on('error', (error) => { if (this.child === child) this.fail(error); });
+    child.on('exit', () => {
+      if (this.child !== child || this.status === 'stopped') return;
+      this.status = 'disconnected';
+      this.fail(new BridgeError('backend.disconnected', 'Frida helper exited', true));
+      void this.recoverFromTransportFailure();
+    });
     try {
       await this.waitForReady();
       const installed = await this.send('install', { allowControl: this.runtimeFeatures.allowControl, allowApprovals: this.runtimeFeatures.allowApprovals, settingsUi: this.options.settingsUi ?? null });
@@ -182,8 +191,45 @@ export class FridaBackend extends EventEmitter implements Backend {
         else if (event.kind === 'server.request.observed') this.emit('approval.observed', event);
       }
       for (const hook of result?.hooks ?? []) if (hook.kind === 'approval.claimed') this.emit('serverRequest.claimed', hook);
-    } catch { this.status = 'disconnected'; this.emit('disconnected'); }
+    } catch (error) {
+      this.lastDiagnostic = error instanceof Error ? error.message : String(error);
+      await this.recoverFromTransportFailure();
+    }
     finally { this.draining = false; }
+  }
+
+  private async recoverFromTransportFailure() {
+    if (this.recovering || this.status === 'stopped' || this.status === 'errored') return;
+    this.recovering = true;
+    this.status = 'disconnected';
+    this.emit('disconnected');
+    const child = this.child;
+    if (this.poller) clearInterval(this.poller);
+    this.poller = undefined;
+    this.fail(new BridgeError('backend.disconnected', 'Desktop shared adapter transport failed', true));
+    try {
+      if (child && child.exitCode === null) {
+        const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+        child.kill();
+        await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 3000))]);
+      }
+    } catch { /* process may already have exited */ }
+    if (this.child === child) this.child = undefined;
+    this.generation++;
+    try {
+      await this.start();
+      this.reconnectAttempt = 0;
+      this.emit('connected');
+    } catch (error) {
+      this.lastDiagnostic = error instanceof Error ? error.message : String(error);
+      this.status = 'disconnected';
+      this.emit('disconnected');
+      const delays = [1_000, 2_000, 5_000, 10_000, 30_000];
+      const delay = delays[Math.min(this.reconnectAttempt++, delays.length - 1)];
+      this.reconnectTimer = setTimeout(() => { this.reconnectTimer = undefined; void this.recoverFromTransportFailure(); }, delay);
+    } finally {
+      this.recovering = false;
+    }
   }
 
   async flush() {
@@ -273,6 +319,7 @@ export class FridaBackend extends EventEmitter implements Backend {
 
   async close() {
     if (this.poller) clearInterval(this.poller);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.child && !this.child.killed) {
       try { this.lastCleanup = await this.send('shutdown', {}); this.hooksRestored = this.lastCleanup?.hooksRestored === true; } catch { /* helper may already be gone */ }
       this.status = 'stopped';

@@ -63,7 +63,9 @@ export class Bridge extends EventEmitter {
     backend.on('disconnected', () => {
       for (const pending of this.serverRequests.values()) if (pending.backend === backend && pending.state !== 'resolved') pending.state = 'unknown';
       this.emit('backend.disconnected', { backendId: backend.id, generation: backend.generation });
+      this.publish(backend, { v: 1, kind: 'event', method: 'event.backend.status', payload: { status: backend.status } });
     });
+    backend.on('connected', () => this.publish(backend, { v: 1, kind: 'event', method: 'event.backend.status', payload: { status: backend.status } }));
     try { await backend.start(); }
     catch (error) { this.backends.delete(backend.id); throw error; }
     return backend;

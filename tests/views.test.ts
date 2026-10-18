@@ -106,3 +106,27 @@ test('sidebar projects and pinned threads merge with native thread history', () 
     ],
   );
 });
+
+test('sidebar nested sections preserve pinned ids and project grouping', () => {
+  const threads = mergeThreadViews([], {
+    data: {
+      pinned: ['pinned-id'],
+      projectGroups: [{
+        project: { id: 'project-2' },
+        conversations: [{ id: 'grouped-id', title: 'Grouped task', summary: 'Request' }],
+      }],
+      recentThreads: [{ id: 'pinned-id', title: 'Pinned task' }],
+    },
+  }, new Map());
+
+  assert.deepEqual(threads.map(({ id, projectId, pinned }) => ({ id, projectId, pinned })), [
+    { id: 'pinned-id', projectId: undefined, pinned: true },
+    { id: 'grouped-id', projectId: 'project-2', pinned: undefined },
+  ]);
+});
+
+test('Windows extended cwd paths still map to their project root', () => {
+  const root = resolve('C:/Users/example/workspace');
+  const cwd = `${root.replace(/^([A-Za-z]:)/, '\\\\?\\$1')}\\apps\\mobile`;
+  assert.equal(projectIdForThread({ cwd }, new Map([['workspace', root]])), 'workspace');
+});

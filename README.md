@@ -101,7 +101,7 @@ $env:MOBILE_CODEX_PUBLIC_URL = 'wss://codex.example.com/ws'
 
 网络不能传任意 JavaScript、函数名、IPC channel、shell、文件路径或 tools/call。`codex.request` 同样受白名单限制。model/effort 只能选当前 Desktop catalog；手机不能传 developer instructions 或覆盖 cwd/roots/sandbox/approval/provider。
 
-项目列表优先来自当前 Codex 提供的 NativePipe；普通终端没有该上下文时提供配置的 workspace。新建聊天的路径由电脑按项目映射，手机只提交 projectId。首版附件只接受配置 workspace 内、Agent 回答明确链接的文件；不提供任意路径下载。
+项目与聊天 sidebar 优先合并当前 Codex NativePipe 数据，并从 `~/.codex/state_*.sqlite` 只读补充项目根目录、线程项目归属和置顶状态；可用 `MOBILE_CODEX_STATE_DB` 指定状态库路径。无法读取状态库时提供配置的 workspace。新建聊天的路径由电脑按项目映射，手机只提交 projectId。首版附件只接受配置 workspace 内、Agent 回答明确链接的文件；不提供任意路径下载。
 
 Desktop 与手机通过 Main 原 IPC handler 的同步 claim 共用一次审批回复。提交失败标为 unknown，原始 Promise/异常语义保留；Main/Renderer hooks 可卸载。helper 退出或失联后 Main watchdog 自动清理。这个实现是 Frida helper + 进程内 JavaScript adapter，并非独立 DLL 成品。
 

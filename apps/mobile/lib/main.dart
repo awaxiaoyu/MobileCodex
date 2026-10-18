@@ -116,6 +116,7 @@ class _TaskPageState extends State<TaskPage> {
   final pinnedThreadSummaries = <String, Map<String, dynamic>>{};
   late final Future<void> pinnedLoad;
   Map<String, dynamic>? backend, thread;
+  bool desktopReady = false;
   final approvals = <String, Map<String, dynamic>>{};
   final buffered = <Map<String, dynamic>>[];
   final newThreads = <String>{};
@@ -245,6 +246,9 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   String localizedConnectionStatus(AppLocalizations strings) {
+    if (client.status == '已连接' && !desktopReady) {
+      return strings.desktopOffline;
+    }
     final status = client.status;
     if (status == '已连接') return strings.connected;
     if (status == '连接中') return strings.connecting;
@@ -512,6 +516,7 @@ class _TaskPageState extends State<TaskPage> {
           (b) => b['kind'] == 'desktop-shared' && b['status'] == 'connected',
         )
         .firstOrNull;
+    desktopReady = shared != null;
     if (shared == null) {
       setNotice(strings.computerDisconnected);
       return;
@@ -577,12 +582,23 @@ class _TaskPageState extends State<TaskPage> {
       model = fallback == null ? null : modelId(fallback);
     }
     if (thread != null) await resume();
+    if (notice == strings.computerDisconnected) notice = '';
     refresh();
   }
 
   void onEvent(Map<String, dynamic> event) {
     if (event['method'] == 'event.connection.ready') {
       unawaited(load().catchError((Object e) => setNotice(e.toString())));
+      return;
+    }
+    if (event['method'] == 'event.backend.status') {
+      desktopReady = event['payload']?['status'] == 'connected';
+      if (desktopReady) {
+        unawaited(load().catchError((Object e) => setNotice(e.toString())));
+      } else {
+        setNotice(AppLocalizations.of(context).computerDisconnected);
+      }
+      refresh();
       return;
     }
     if (syncing) {
@@ -1127,7 +1143,10 @@ class _TaskPageState extends State<TaskPage> {
     };
     final visibleThreads = threadsById.values.where(hasThreadContent).toList();
     final pinnedThreads = visibleThreads
-        .where((chat) => pinnedThreadIds.contains(chat['id']))
+        .where(
+          (chat) =>
+              pinnedThreadIds.contains(chat['id']) || isRemotePinned(chat),
+        )
         .toList();
     final pinnedIds = pinnedThreads.map((chat) => chat['id']).toSet();
     final projectChats = <String, List<Map<String, dynamic>>>{};
@@ -1160,7 +1179,7 @@ class _TaskPageState extends State<TaskPage> {
       strings: strings,
       projectLabel: projectLabel(composerProjectId),
       branchLabel: projectBranch(composerProjectId),
-      locationLabel: client.status == '已连接' ? strings.local : null,
+      locationLabel: client.status == '已连接' && desktopReady ? strings.local : null,
       model: model,
       models: modelOptions,
       mode: mode,
@@ -1576,7 +1595,7 @@ class _TaskPageState extends State<TaskPage> {
                                         width: 7,
                                         height: 7,
                                         decoration: BoxDecoration(
-                                          color: client.status == '已连接'
+                                          color: client.status == '已连接' && desktopReady
                                               ? const Color(0xff6d9b7f)
                                               : const Color(0xffb0b0b0),
                                           shape: BoxShape.circle,
@@ -1584,7 +1603,7 @@ class _TaskPageState extends State<TaskPage> {
                                       ),
                                       const SizedBox(width: 6),
                                       Text(
-                                        client.status == '已连接'
+                                        client.status == '已连接' && desktopReady
                                             ? strings.connected
                                             : localizedConnectionStatus(
                                                 strings,
