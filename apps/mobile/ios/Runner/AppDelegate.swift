@@ -34,8 +34,9 @@ import UIKit
   private static func hardwareIdentifier() -> String {
     var systemInfo = utsname()
     uname(&systemInfo)
+    let machineSize = MemoryLayout.size(ofValue: systemInfo.machine)
     return withUnsafePointer(to: &systemInfo.machine) {
-      $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: systemInfo.machine)) {
+      $0.withMemoryRebound(to: CChar.self, capacity: machineSize) {
         String(cString: $0)
       }
     }
