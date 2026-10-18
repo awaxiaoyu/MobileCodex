@@ -60,8 +60,8 @@ final class NativeBridgeClient: NSObject, ObservableObject {
 
   func pair(from raw: String) async {
     do {
-      guard let data = raw.data(using: .utf8),
-            let value = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+      guard let rawData = raw.data(using: .utf8),
+            let value = try JSONSerialization.jsonObject(with: rawData) as? [String: Any],
             let urlText = value["url"] as? String,
             let url = URL(string: urlText),
             url.scheme == "wss",
@@ -77,18 +77,24 @@ final class NativeBridgeClient: NSObject, ObservableObject {
         : UIDevice.current.name
       let delegate = PinningDelegate(fingerprint: fingerprint)
       let pairingSession = URLSession(configuration: .ephemeral, delegate: delegate, delegateQueue: nil)
-      var pairURL = url.deletingLastPathComponent().appendingPathComponent("pair")
-      pairURL.scheme = "https"
+      let pairPath = url.deletingLastPathComponent().appendingPathComponent("pair")
+      guard var pairComponents = URLComponents(url: pairPath, resolvingAgainstBaseURL: false) else {
+        throw NativeBridgeError.invalidPairing
+      }
+      pairComponents.scheme = "https"
+      guard let pairURL = pairComponents.url else {
+        throw NativeBridgeError.invalidPairing
+      }
       var request = URLRequest(url: pairURL)
       request.httpMethod = "POST"
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
       request.httpBody = try JSONSerialization.data(withJSONObject: ["id": id, "secret": secret, "name": deviceName])
-      let (data, response) = try await pairingSession.data(for: request)
+      let (responseData, response) = try await pairingSession.data(for: request)
       guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-            let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let result = try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
             let token = result["token"] as? String,
             let deviceId = result["deviceId"] as? String else {
-        let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["error"].flatMap(nativeDictionary).flatMap { $0["message"] }.flatMap(nativeString)
+        let message = (try? JSONSerialization.jsonObject(with: responseData) as? [String: Any])?["error"].flatMap(nativeDictionary).flatMap { $0["message"] }.flatMap(nativeString)
         throw NativeBridgeError.rpc(code: "pair.failed", message: message ?? "配对失败", requestId: "pair")
       }
       let saved = NativeCredentials(url: urlText, fingerprint: fingerprint, token: token, deviceId: deviceId, deviceName: deviceName)

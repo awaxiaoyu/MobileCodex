@@ -277,7 +277,17 @@ private struct NativeApprovalSheet: View {
   }
 
   private var questions: [[String: Any]] { nativeArray(approval.payload["questions"]) }
-  private var properties: [String: [String: Any]] { nativeDictionary(nativeDictionary(approval.payload["requestedSchema"])?["properties"]) ?? [:] }
+  private var properties: [String: [String: Any]] {
+    guard let schema = nativeDictionary(approval.payload["requestedSchema"]),
+          let rawProperties = schema["properties"] as? [String: Any] else {
+      return [:]
+    }
+    return rawProperties.reduce(into: [:]) { result, entry in
+      if let property = entry.value as? [String: Any] {
+        result[entry.key] = property
+      }
+    }
+  }
   private var propertyNames: [String] { properties.keys.sorted() }
   private var requiredFields: Set<String> { Set((nativeDictionary(approval.payload["requestedSchema"])?["required"] as? [String]) ?? []) }
 
