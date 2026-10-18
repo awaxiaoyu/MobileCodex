@@ -126,7 +126,7 @@ test('sidebar nested sections preserve pinned ids and project grouping', () => {
 });
 
 test('Windows extended cwd paths still map to their project root', () => {
-  const root = resolve('C:/Users/example/workspace');
-  const cwd = `${root.replace(/^([A-Za-z]:)/, '\\\\?\\$1')}\\apps\\mobile`;
+  const root = 'C:\\Users\\example\\workspace';
+  const cwd = '\\\\?\\C:\\Users\\example\\workspace\\apps\\mobile';
   assert.equal(projectIdForThread({ cwd }, new Map([['workspace', root]])), 'workspace');
 });

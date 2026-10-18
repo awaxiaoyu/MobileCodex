@@ -1,4 +1,4 @@
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, relative, resolve, sep, win32 } from 'node:path';
 
 // Mobile task views deliberately exclude raw command output, environment,
 // filesystem metadata, credentials, and low-level tool payloads.
@@ -81,14 +81,21 @@ export function projectIdForThread(thread: any, roots: Map<string, string>) {
   if (direct) {
     return direct;
   }
-  if (typeof thread?.cwd !== 'string' || !isAbsolute(thread.cwd)) return undefined;
+  if (typeof thread?.cwd !== 'string') return undefined;
+  const cwd = normalizeNativePath(thread.cwd);
+  const pathApi = isWindowsAbsolute(cwd) ? win32 : undefined;
+  if (!(pathApi ? pathApi.isAbsolute(cwd) : isAbsolute(cwd))) return undefined;
 
   let match: { projectId: string; length: number } | undefined;
   for (const [projectId, projectRoot] of roots) {
-    const root = resolve(normalizeNativePath(projectRoot));
-    const cwd = resolve(normalizeNativePath(thread.cwd));
-    const pathFromRoot = relative(root, cwd);
-    const outside = pathFromRoot === '..' || pathFromRoot.startsWith(`..${sep}`) || isAbsolute(pathFromRoot);
+    const normalizedRoot = normalizeNativePath(projectRoot);
+    if (pathApi && !isWindowsAbsolute(normalizedRoot)) continue;
+    const root = pathApi ? pathApi.resolve(normalizedRoot) : resolve(normalizedRoot);
+    const resolvedCwd = pathApi ? pathApi.resolve(cwd) : resolve(cwd);
+    const pathFromRoot = pathApi ? pathApi.relative(root, resolvedCwd) : relative(root, resolvedCwd);
+    const separator = pathApi ? '\\' : sep;
+    const outside = pathFromRoot === '..' || pathFromRoot.startsWith(`..${separator}`) ||
+      (pathApi ? pathApi.isAbsolute(pathFromRoot) : isAbsolute(pathFromRoot));
     if (outside) continue;
     const length = root.length;
     if (!match || length > match.length) match = { projectId, length };
@@ -97,8 +104,11 @@ export function projectIdForThread(thread: any, roots: Map<string, string>) {
 }
 
 function normalizeNativePath(value: string) {
-  if (process.platform !== 'win32') return value;
   return value.replace(/^\\\\\?\\UNC\\/i, '\\\\').replace(/^\\\\\?\\/, '');
+}
+
+function isWindowsAbsolute(value: string) {
+  return /^[a-z]:[\\/]/i.test(value) || /^\\\\/.test(value);
 }
 
 function firstArray(value: any, keys: string[]) {
