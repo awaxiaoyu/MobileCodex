@@ -259,7 +259,7 @@ class _TaskPageState extends State<TaskPage> {
     if (newThreads.contains(chat['id'])) return false;
     final turns = chat['turns'];
     if (turns is List) {
-      return turns.any((turn) {
+      final hasVisibleTurn = turns.any((turn) {
         if (turn is! Map) return false;
         final items = turn['items'];
         if (items is! List) return false;
@@ -269,6 +269,7 @@ class _TaskPageState extends State<TaskPage> {
               isVisibleTimelineItem(Map<String, dynamic>.from(item)),
         );
       });
+      if (hasVisibleTurn) return true;
     }
     for (final key in const [
       'preview',
@@ -289,10 +290,17 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
     final title = chat['title']?.toString().trim();
-    return (pinnedThreadIds.contains(chat['id']) || isRemotePinned(chat)) &&
-        title != null &&
+    final hasThreadMetadata =
+        chat['status'] != null ||
+        chat['createdAt'] != null ||
+        chat['updatedAt'] != null ||
+        chat['projectId'] != null;
+    return title != null &&
         title.isNotEmpty &&
-        !isNewChatTitle(title);
+        !isNewChatTitle(title) &&
+        (hasThreadMetadata ||
+            pinnedThreadIds.contains(chat['id']) ||
+            isRemotePinned(chat));
   }
 
   bool isRemotePinned(Map<String, dynamic> chat) =>

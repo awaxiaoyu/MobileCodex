@@ -303,4 +303,29 @@ void main() {
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox());
   });
+
+  testWidgets('thread summaries with empty turns remain visible', (
+    tester,
+  ) async {
+    final fixture = DesktopFixture()
+      ..fixtureThreads = [
+        {
+          'id': 'summary-chat',
+          'title': 'Saved chat',
+          'preview': 'Saved request',
+          'turns': <dynamic>[],
+          'status': 'idle',
+          'updatedAt': '2026-10-18T05:00:00Z',
+        },
+      ];
+    addTearDown(fixture.dispose);
+    await tester.pumpWidget(MaterialApp(home: TaskPage(client: fixture)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Open navigation menu'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Saved chat'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
 }
