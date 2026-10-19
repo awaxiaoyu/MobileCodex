@@ -1,18 +1,48 @@
-# Mobile Codex Android
+# MobileCodex Android
 
-Flutter Android 客户端。连接自有 Windows Bridge，在 Android 手机上继续 Desktop 聊天。iOS 客户端是同仓库 `apps/ios` 下独立的原生 SwiftUI 工程。
+这是 MobileCodex 的 Flutter Android 客户端。它连接同一局域网或 VPN 中的 Windows Bridge，让用户在手机上继续查看和操作 Codex Desktop 任务。
 
-打开 Bridge 生成的 `.local/pairing.json`，在手机“连接电脑”中粘贴。此信息 2 分钟有效、只能使用一次；配对 token 保存到 OS secure storage，应用下次启动会自动恢复并重连，不需要再次配对。TLS 使用电脑证书 SHA-256 pin。公网连接需要 VPN、端口转发或 relay 提供 `wss://.../ws` 可达地址；Bridge 不会把 admin HTTP 暴露到公网。之后打开聊天列表，选择已有聊天或在所选已有项目新建聊天。
+## 开发环境
 
-已实现文字任务、model/effort、Default/Plan、流式回答、Steer/Interrupt、审批/用户问题、基础 MCP 表单、Diff、附件下载与原生分享、重连与请求结果查询。复杂 MCP schema 和 OAuth 仍提示到电脑处理。
+- Flutter 3.47.7；
+- Dart 3.13.5；
+- Android SDK 和 JDK 17；
+- 已启动的 Bridge（真实连接测试需要）。
 
-```powershell
-../../.local/flutter/bin/flutter.bat pub get
-../../.local/flutter/bin/flutter.bat analyze
-../../.local/flutter/bin/flutter.bat test
-../../.local/flutter/bin/flutter.bat build apk --debug
-```
+## 本地运行
 
-本机 analyze、两项测试和 Android assets bundle 编译通过。debug APK 因 Gradle 下载超时尚未生成；实体手机及 iOS 构建尚未验收。首版没有后台推送、relay、文件树或 Terminal 页面。
+~~~powershell
+flutter pub get
+flutter analyze
+flutter test
+flutter run
+~~~
 
-GitHub Actions 的 `iOS App` workflow 在 macOS runner 上构建 unsigned IPA 和 Xcode archive。仓库未配置 Apple signing certificate 或 provisioning profile，因此该 IPA 只能用于构建产物验证，不能直接安装到真机。
+构建 debug APK：
+
+~~~powershell
+flutter build apk --debug
+~~~
+
+## 连接 Bridge
+
+1. 在电脑上按根目录 README 启动 Bridge。
+2. 在 Bridge 设置中生成一次性 pairing JSON 或二维码。
+3. 在 Android 应用的“连接电脑”页面粘贴 JSON，或扫描二维码。
+4. 配对成功后，从聊天列表选择已有项目和聊天。
+
+pairing secret 只能使用一次并且短期有效。客户端将 token 写入 Android secure storage，并对 Bridge 证书执行 SHA-256 pinning。公网使用前请先配置 VPN 或受控的 WSS 入口；不要暴露 Bridge 的本机 admin HTTP 端口。
+
+## 已实现功能
+
+- 项目与聊天列表、读取、新建和恢复；
+- Agent 任务、流式回答、Default/Plan、model/effort；
+- Steer、Interrupt、用户问题和支持的审批表单；
+- Diff、任务附件的下载和原生分享；
+- 断线重连、事件恢复和请求状态查询。
+
+Terminal、通用文件浏览、任意路径读写、Desktop 窗口控制和账号配置不属于手机端接口。需要这些能力时，仍通过聊天请求电脑上的 Agent 执行。
+
+## 测试说明
+
+flutter test 使用本地 mock Bridge 验证 widget、配对和连接错误；它不会连接真实 Desktop。真实设备验收需要单独检查 LAN/VPN、锁屏恢复、证书更新和任务附件分享。

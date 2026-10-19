@@ -1,19 +1,6 @@
 {
   "scopeVersion": "0.2.0",
-  "date": "2026-10-14",
-  "source": "codex-feature-inventory.json",
-  "versions": {
-    "inspectionDate": "2026-10-14",
-    "platform": "Windows x64",
-    "windowsPackageVersion": "26.1007.2314.0",
-    "electronProductVersion": "26.1007.21434",
-    "buildNumber": "13901",
-    "buildFlavor": "prod",
-    "electronVersion": "42.3.0",
-    "cliVersion": "0.162.0-alpha.17.2",
-    "installRoot": "C:\\Program Files\\WindowsApps\\OpenAI.Codex_26.1007.2314.0_x64__2p2nqsd0c76g0",
-    "cliPath": "C:\\Users\\xiaoyu\\AppData\\Local\\OpenAI\\Codex\\bin\\2e5e00daee91c61d\\codex.exe"
-  },
+  "source": "docs/design/mobile-capability-scope.md",
   "note": "产品范围决定，不是功能不存在或能力不可用。对混合条目拆分；host/defer 不注册独立手机 API。用户经聊天请求原 Agent 能力仍按电脑现有权限执行。",
   "counts": {
     "keep": 11,

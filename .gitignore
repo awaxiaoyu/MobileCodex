@@ -8,3 +8,9 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# Platform work that is intentionally kept outside the public repository.
+/apps/ios/
+
+# Local reverse-engineering notes and machine-specific verification artifacts.
+/docs/evidence/

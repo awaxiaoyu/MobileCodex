@@ -1,7 +1,15 @@
 {
   "name": "mobile-codex-bridge",
   "version": "0.2.0",
-  "private": true,
+  "description": "A Windows Bridge and Android client for continuing Codex Desktop tasks from a paired phone.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/awaxiaoyu/MobileCodex.git"
+  },
+  "bugs": {
+    "url": "https://github.com/awaxiaoyu/MobileCodex/issues"
+  },
   "type": "module",
   "engines": {
     "node": ">=24"

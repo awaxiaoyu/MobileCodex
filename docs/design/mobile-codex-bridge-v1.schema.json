@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:mobile-codex-bridge:protocol:v1",
   "title": "Mobile Codex Bridge v1 Envelope",
-  "description": "Mobile Codex Bridge v1 envelope。当前实现状态见 README.md 与 docs/p0-verification.md；原生参数/回复按部署版本 schema 与业务白名单校验。",
+  "description": "Mobile Codex Bridge v1 envelope。当前实现状态见 README.md 与 docs/development/verification.md；原生参数/回复按部署版本 schema 与业务白名单校验。",
   "type": "object",
   "required": [
     "v",
