@@ -1,4 +1,4 @@
-name: Android APK
+name: MobileCodex CI and Release
 
 on:
   workflow_dispatch:
@@ -13,6 +13,10 @@ on:
       - "pnpm-workspace.yaml"
       - "src/**"
       - "tests/**"
+      - "adapters/**"
+      - "native/**"
+      - "schemas/**"
+      - "scripts/**"
       - ".github/workflows/android.yml"
 
 permissions:
@@ -24,6 +28,7 @@ concurrency:
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
@@ -118,10 +123,68 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-windows:
+    name: Build Windows Bridge
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Frida runtime
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --target "$env:GITHUB_WORKSPACE\.local\frida" frida==17.23.3
+
+      - name: Build Windows Bridge
+        shell: pwsh
+        run: |
+          $env:MOBILE_CODEX_FRIDA_PYTHON = (Get-Command python).Source
+          $env:MOBILE_CODEX_FRIDA_DEPS = Join-Path $env:GITHUB_WORKSPACE '.local\frida'
+          pnpm build:windows
+
+      - name: Package Windows Bridge
+        shell: pwsh
+        run: |
+          Copy-Item 'dist\MobileCodexBridge\MobileCodexBridge.exe' 'dist\MobileCodexBridge.exe' -Force
+          Compress-Archive -Path 'dist\MobileCodexBridge\*' -DestinationPath 'dist\MobileCodexBridge-windows-x64.zip' -CompressionLevel Optimal
+
+      - name: Upload Windows Bridge
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-codex-windows-x64
+          path: |
+            dist/MobileCodexBridge.exe
+            dist/MobileCodexBridge-windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+
   release:
     name: Publish GitHub Release
     if: github.ref == 'refs/heads/main'
-    needs: build
+    needs:
+      - build
+      - build-windows
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -134,6 +197,12 @@ jobs:
           name: mobile-codex-debug-apk-x86_64
           path: release-assets
 
+      - name: Download Windows Bridge
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-codex-windows-x64
+          path: release-assets
+
       - name: Create or update GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -143,13 +212,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="android-v${VERSION}-${RUN_ID}"
-          title="MobileCodex Android ${VERSION} (${RUN_ID})"
-          notes="Automated x86_64 debug APK built from ${SHA}."
+          tag="v${VERSION}-${RUN_ID}"
+          title="MobileCodex ${VERSION} (${RUN_ID})"
+          notes="Automated Android x86_64 debug APK and Windows Bridge build from ${SHA}."
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release upload "${tag}" release-assets/app-x86_64-debug.apk --repo "${GITHUB_REPOSITORY}" --clobber
+            gh release upload "${tag}" \
+              release-assets/app-x86_64-debug.apk \
+              release-assets/MobileCodexBridge.exe \
+              release-assets/MobileCodexBridge-windows-x64.zip \
+              --repo "${GITHUB_REPOSITORY}" --clobber
           else
-            gh release create "${tag}" release-assets/app-x86_64-debug.apk \
+            gh release create "${tag}" \
+              release-assets/app-x86_64-debug.apk \
+              release-assets/MobileCodexBridge.exe \
+              release-assets/MobileCodexBridge-windows-x64.zip \
               --repo "${GITHUB_REPOSITORY}" \
               --target "${SHA}" \
               --title "${title}" \

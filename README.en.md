@@ -54,7 +54,7 @@ scripts/                Start, build, smoke-test, and benchmark scripts
 tests/                  Node fixtures and Bridge tests
 docs/development/       Verification, benchmark, and roadmap
 docs/guides/            Desktop settings and usage guides
-.github/workflows/      Android CI and Release
+.github/workflows/      Android/Windows CI and Release
 ~~~
 
 `dist/`, `.local/`, `node_modules/`, `apps/ios/`, `docs/design/`, and `docs/evidence/` are local or excluded content and should not be committed. Design Markdown is maintained only in local workspaces; the public protocol contract is the JSON under `schemas/bridge/`.
@@ -136,7 +136,7 @@ Codex credentials, project paths, and permission configuration on the computer a
 
 ## CI and automatic Releases
 
-`.github/workflows/android.yml` runs Node typecheck/test, Flutter analyze/test, and a debug APK build on a GitHub-hosted Ubuntu runner. After a successful build on `main`, the workflow automatically creates a GitHub Release with the x86_64 debug APK attached. Release tags use `android-v<version>-<run id>` and are available on [Releases](https://github.com/awaxiaoyu/MobileCodex/releases).
+`.github/workflows/android.yml` runs Node typecheck/test, Flutter analyze/test, a debug APK build on Ubuntu, and the Windows Bridge EXE build on Windows. After both builds succeed on `main`, the workflow automatically creates a GitHub Release with the x86_64 debug APK, `MobileCodexBridge.exe`, and a portable ZIP attached. Release tags use `v<version>-<run id>` and are available on [Releases](https://github.com/awaxiaoyu/MobileCodex/releases).
 
 ## Documentation
 

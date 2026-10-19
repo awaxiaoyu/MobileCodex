@@ -54,7 +54,7 @@ scripts/                启动、构建、smoke test 和 benchmark
 tests/                  Node fixture 与 Bridge tests
 docs/development/       验证、benchmark 和路线图
 docs/guides/            Desktop 设置入口和运行指南
-.github/workflows/      Android CI 与 Release
+.github/workflows/      Android/Windows CI 与 Release
 ~~~
 
 `dist/`、`.local/`、`node_modules/`、`apps/ios/`、`docs/design/` 和 `docs/evidence/` 都是本地或排除内容，不应提交。设计 Markdown 只在本地工作区维护；公开协议以 `schemas/bridge/` 中的 JSON 为准。
@@ -136,7 +136,7 @@ smoke 命令需要正在运行的兼容 Desktop；它们不是离线单元测试
 
 ## CI 与自动 Release
 
-`.github/workflows/android.yml` 在 GitHub-hosted Ubuntu runner 上执行 Node typecheck/test、Flutter analyze/test 和 debug APK 构建。`main` 分支上的构建成功后，workflow 会自动创建 GitHub Release，并附带 x86_64 debug APK。Release tag 使用 `android-v<版本>-<run id>`，可从 [Releases](https://github.com/awaxiaoyu/MobileCodex/releases) 下载。
+`.github/workflows/android.yml` 会在 GitHub-hosted Ubuntu 和 Windows runner 上执行 Node typecheck/test、Flutter analyze/test、debug APK 和 Windows Bridge EXE 构建。`main` 分支上的两个构建都成功后，workflow 会自动创建 GitHub Release，并附带 x86_64 debug APK、`MobileCodexBridge.exe` 和 portable ZIP。Release tag 使用 `v<版本>-<run id>`，可从 [Releases](https://github.com/awaxiaoyu/MobileCodex/releases) 下载。
 
 ## 文档
 

@@ -8,7 +8,7 @@ MobileCodex 的路线图按交付阶段维护。每一项进入下一阶段前�
 - [x] 使用 Apache-2.0 许可证，补充贡献指南和安全报告入口。
 - [x] 将 Bridge envelope、示例和能力范围整理为可机器读取的 JSON 资源。
 - [x] 从公开树移除 iOS 工程、机器证据和本地设计 Markdown。
-- [x] 建立 Node 与 Flutter 的离线检查，并在 `main` 构建成功后自动发布 Android Release。
+- [x] 建立 Node 与 Flutter 的检查，并在 `main` 构建成功后自动发布 Android APK 与 Windows Bridge Release。
 
 ## 当前阶段：稳定性与可复现安装
 
