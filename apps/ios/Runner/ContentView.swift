@@ -654,7 +654,8 @@ private struct MobileDrawer: View {
       .padding(.top, 12)
       .padding(.bottom, 3)
     }
-    .frame(width: width, maxHeight: .infinity, alignment: .topLeading)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .frame(width: width)
     .background(Color.white)
     .padding(.top, 0)
   }
