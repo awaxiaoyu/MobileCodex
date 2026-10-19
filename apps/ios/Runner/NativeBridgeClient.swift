@@ -119,6 +119,9 @@ final class NativeBridgeClient: NSObject, ObservableObject {
     generation = nil
     desktopReady = false
     currentThread = nil
+    currentTurnId = nil
+    running = false
+    approval = nil
     messages = []
     artifacts = []
     diff = ""
@@ -354,6 +357,8 @@ final class NativeBridgeClient: NSObject, ObservableObject {
       messages = []
       streamId = nil
       sequence = 0
+      diff = ""
+      artifacts = []
       await snapshot()
     } catch { notice = error.localizedDescription }
   }
@@ -364,6 +369,13 @@ final class NativeBridgeClient: NSObject, ObservableObject {
       guard let thread = thread(from: nativeDictionary(nativeDictionary(response["payload"])?["thread"])) else { throw NativeBridgeError.invalidResponse }
       currentThread = thread
       messages = []
+      currentTurnId = nil
+      running = false
+      streamId = nil
+      sequence = 0
+      approval = nil
+      diff = ""
+      artifacts = []
       mode = "plan"
     } catch { notice = error.localizedDescription }
   }

@@ -6,68 +6,131 @@ struct ContentView: View {
   @EnvironmentObject private var bridge: NativeBridgeClient
   @State private var composer = ""
   @State private var showingPairing = false
-  @State private var pairingText = ""
   @State private var showingSettings = false
-  @State private var showingChats = false
+  @State private var drawerProgress: CGFloat = 0
+  @State private var gestureStartProgress: CGFloat?
+  @State private var horizontalGesture: Bool?
   @State private var shareFile: ShareFile?
 
   var body: some View {
-    NavigationView {
-      ZStack {
-        Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
-        VStack(spacing: 0) {
-          header
-          Divider()
-          conversation
-          composerBar
+    GeometryReader { proxy in
+      let drawerWidth = proxy.size.width * 0.80
+      ZStack(alignment: .leading) {
+        MobileDrawer(width: drawerWidth, close: closeDrawer, openSettings: { closeDrawer(); showingSettings = true })
+          .environmentObject(bridge)
+
+        mainLayer
+          .frame(width: proxy.size.width)
+          .clipShape(LeadingRoundedRectangle(radius: 36 * drawerProgress))
+          .shadow(color: .black.opacity(0.13 * drawerProgress), radius: 8, x: -4, y: 0)
+          .offset(x: drawerWidth * drawerProgress)
+          .gesture(drawerGesture(width: drawerWidth))
+      }
+      .background(Color.white.ignoresSafeArea())
+    }
+    .preferredColorScheme(.light)
+    .sheet(isPresented: $showingSettings) { SettingsView() }
+    .sheet(item: $shareFile) { value in ActivityView(url: value.url) }
+    .sheet(isPresented: $showingPairing) {
+      PairingView { raw in
+        showingPairing = false
+        Task { await bridge.pair(from: raw) }
+      }
+    }
+    .sheet(item: $bridge.approval) { approval in
+      NativeApprovalSheet(approval: approval)
+    }
+  }
+
+  private var mainLayer: some View {
+    VStack(spacing: 0) {
+      header
+      conversation
+      composerBar
+    }
+    .background(Color.white)
+  }
+
+  private func drawerGesture(width: CGFloat) -> some Gesture {
+    DragGesture(minimumDistance: 10)
+      .onChanged { value in
+        if horizontalGesture == nil {
+          horizontalGesture = abs(value.translation.width) > abs(value.translation.height) && abs(value.translation.width) > 6
         }
+        guard horizontalGesture == true else { return }
+        if gestureStartProgress == nil { gestureStartProgress = drawerProgress }
+        let delta = value.translation.width / max(width, 1)
+        drawerProgress = min(1, max(0, (gestureStartProgress ?? drawerProgress) + delta))
       }
-      .navigationBarHidden(true)
-      .sheet(isPresented: $showingChats) { ChatListView() }
-      .sheet(isPresented: $showingSettings) { SettingsView() }
-      .sheet(item: $shareFile) { value in ActivityView(url: value.url) }
-      .sheet(isPresented: $showingPairing) {
-        PairingView { raw in
-          pairingText = ""
-          showingPairing = false
-          Task { await bridge.pair(from: raw) }
+      .onEnded { value in
+        guard horizontalGesture == true else {
+          gestureStartProgress = nil
+          horizontalGesture = nil
+          return
         }
+        let start = gestureStartProgress ?? drawerProgress
+        let projected = start + value.predictedEndTranslation.width / max(width, 1)
+        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+          drawerProgress = projected > 0.45 ? 1 : 0
+        }
+        gestureStartProgress = nil
+        horizontalGesture = nil
       }
-      .sheet(item: $bridge.approval) { approval in
-        NativeApprovalSheet(approval: approval)
-      }
+  }
+
+  private func closeDrawer() {
+    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+      drawerProgress = 0
     }
   }
 
   private var header: some View {
     HStack(spacing: 12) {
-      Button { showingChats = true } label: {
-        Image(systemName: "sidebar.left")
+      Button {
+        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+          drawerProgress = drawerProgress > 0.5 ? 0 : 1
+        }
+      } label: {
+        Image(systemName: "line.3.horizontal")
           .font(.system(size: 18, weight: .semibold))
           .frame(width: 36, height: 36)
       }
+      .buttonStyle(MobileIconButtonStyle())
+      .accessibilityLabel("打开侧边菜单")
       VStack(alignment: .leading, spacing: 2) {
-        Text(bridge.currentThread?.title ?? "Mobile Codex")
-          .font(.headline)
+        Text(threadTitle)
+          .font(.system(size: bridge.currentThread == nil ? 22 : 15, weight: .semibold))
           .lineLimit(1)
-        HStack(spacing: 5) {
-          Circle().fill(bridge.desktopReady ? .green : .secondary).frame(width: 7, height: 7)
-          Text(bridge.desktopReady ? (bridge.running ? "正在运行" : "已连接") : bridge.status)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+        if bridge.currentThread != nil {
+          HStack(spacing: 5) {
+            Circle().fill(bridge.running ? Color.orange : Color.green).frame(width: 6, height: 6)
+            Text(bridge.running ? "运行中" : bridge.status)
+              .font(.system(size: 10, weight: .medium))
+              .foregroundStyle(.secondary)
+          }
         }
       }
       Spacer()
-      Button { showingSettings = true } label: {
-        Image(systemName: "gearshape")
-          .font(.system(size: 17, weight: .medium))
-          .frame(width: 36, height: 36)
+      if bridge.currentThread == nil && bridge.desktopReady {
+        HStack(spacing: 5) {
+          Circle().fill(bridge.running ? Color.orange : Color.green).frame(width: 6, height: 6)
+          Text(bridge.running ? "运行中" : "Connected")
+            .font(.system(size: 10, weight: .medium))
+            .foregroundStyle(.secondary)
+        }
       }
-      .disabled(!bridge.desktopReady && !bridge.hasCredentials)
     }
     .padding(.horizontal, 16)
-    .padding(.vertical, 10)
-    .liquidGlass()
+    .padding(.top, 8)
+    .padding(.bottom, 7)
+  }
+
+  private var threadTitle: String {
+    guard let thread = bridge.currentThread else { return "Mobile Codex" }
+    if let project = bridge.projects.first(where: { $0.id == thread.projectId }) {
+      return "\(project.label)/\(thread.title)"
+    }
+    return thread.title
   }
 
   private var conversation: some View {
@@ -88,7 +151,7 @@ struct ContentView: View {
               title: "开始一个任务",
               message: "选择一个聊天，或直接输入新的任务。",
               actionTitle: "查看聊天",
-              action: { showingChats = true }
+              action: { openDrawer() }
             )
           } else {
             ForEach(bridge.messages) { message in
@@ -105,7 +168,8 @@ struct ContentView: View {
                   .frame(maxWidth: .infinity, alignment: .leading)
               }
               .padding(14)
-              .liquidGlass()
+              .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+              .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.black.opacity(0.08)))
             }
             if !bridge.artifacts.isEmpty {
               ForEach(bridge.artifacts) { artifact in
@@ -143,54 +207,102 @@ struct ContentView: View {
   }
 
   private var composerBar: some View {
-    VStack(spacing: 8) {
-      HStack(spacing: 8) {
+    VStack(alignment: .leading, spacing: 8) {
+      ZStack(alignment: .topLeading) {
+        TextEditor(text: $composer)
+          .font(.system(size: 14))
+          .frame(minHeight: 42, maxHeight: 104)
+          .padding(.horizontal, 8)
+          .padding(.vertical, 7)
+          .background(Color.white)
+          .onSubmit { submit() }
+        if composer.isEmpty {
+          Text(bridge.currentThread == nil ? "Message Codex…" : "Add direction to this task…")
+            .font(.system(size: 14))
+            .foregroundStyle(Color.black.opacity(0.38))
+            .padding(.horizontal, 13)
+            .padding(.vertical, 15)
+            .allowsHitTesting(false)
+        }
+      }
+      HStack(spacing: 7) {
         Menu {
           Picker("模式", selection: $bridge.mode) {
             Text("Default").tag("default")
             Text("Plan").tag("plan")
           }
         } label: {
-          Label(bridge.mode == "plan" ? "Plan" : "Default", systemImage: "slider.horizontal.3")
-            .font(.caption.weight(.medium))
+          Label(bridge.mode == "plan" ? "Plan" : "Default", systemImage: "route")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
         }
-        .buttonStyle(.borderless)
-        Spacer()
+        .buttonStyle(.plain)
+        if !bridge.models.isEmpty {
+          Menu {
+            ForEach(bridge.models) { model in
+              Button {
+                bridge.selectedModel = model.id
+              } label: {
+                if model.id == bridge.selectedModel { Label(model.label, systemImage: "checkmark") } else { Text(model.label) }
+              }
+            }
+          } label: {
+            Text(bridge.models.first(where: { $0.id == bridge.selectedModel })?.label ?? "Model")
+              .font(.system(size: 12, weight: .medium))
+              .foregroundStyle(.secondary)
+          }
+          .buttonStyle(.plain)
+        }
+        Spacer(minLength: 0)
         if bridge.running {
           Button { Task { await bridge.interrupt() } } label: {
-            Image(systemName: "stop.circle.fill").font(.title3)
+            Image(systemName: "stop.fill")
+              .font(.system(size: 11, weight: .bold))
+              .frame(width: 34, height: 34)
+              .background(Color.black, in: Circle())
+              .foregroundStyle(.white)
           }
-          .tint(.red)
+          .accessibilityLabel("停止任务")
+        } else {
+          Button(action: submit) {
+            Image(systemName: "arrow.up")
+              .font(.system(size: 14, weight: .bold))
+              .frame(width: 34, height: 34)
+              .background(Color.black, in: Circle())
+              .foregroundStyle(.white)
+          }
+          .disabled(composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !bridge.desktopReady)
+          .opacity(composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !bridge.desktopReady ? 0.35 : 1)
+          .accessibilityLabel("发送")
         }
       }
-      HStack(alignment: .bottom, spacing: 10) {
-        TextEditor(text: $composer)
-          .frame(minHeight: 38, maxHeight: 112)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 10)
-          .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-          .onSubmit { submit() }
-        Button(action: submit) {
-          Image(systemName: "arrow.up.circle.fill")
-            .font(.system(size: 29))
-        }
-        .disabled(composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !bridge.desktopReady)
-      }
+      .padding(.horizontal, 8)
+      .padding(.bottom, 8)
     }
-    .padding(.horizontal, 16)
-    .padding(.top, 10)
-    .padding(.bottom, 12)
-    .background(.thinMaterial)
+    .padding(.horizontal, 13)
+    .padding(.top, 9)
+    .padding(.bottom, 5)
+    .background(Color.white)
+    .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(Color.black.opacity(0.11)))
+    .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
+    .padding(.horizontal, 13)
+    .padding(.bottom, 10)
   }
 
   private func submit() {
-    let value = composer
+    let value = composer.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty, bridge.desktopReady else { return }
     composer = ""
     Task { await bridge.send(value) }
   }
 
-}
+  private func openDrawer() {
+    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+      drawerProgress = 1
+    }
+  }
 
+}
 private struct EmptyStateView: View {
   let title: String
   let message: String
@@ -199,21 +311,25 @@ private struct EmptyStateView: View {
 
   var body: some View {
     VStack(spacing: 12) {
-      Image(systemName: "link.circle")
+      Image(systemName: "sparkles")
         .font(.system(size: 38, weight: .light))
-        .foregroundStyle(.secondary)
+        .foregroundStyle(.primary)
       Text(title).font(.title3.weight(.semibold))
       Text(message)
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
-      Button(actionTitle, action: action).buttonStyle(.borderedProminent)
+      Button(actionTitle, action: action)
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .frame(height: 38)
+        .background(Color.black, in: Capsule())
     }
     .frame(maxWidth: .infinity)
     .padding(.vertical, 90)
   }
 }
-
 private struct NativeApprovalSheet: View {
   @EnvironmentObject private var bridge: NativeBridgeClient
   @Environment(\.dismiss) private var dismiss
@@ -351,21 +467,39 @@ private struct MessageRow: View {
 
   var body: some View {
     HStack(alignment: .top, spacing: 10) {
-      Image(systemName: message.role == .user ? "person.circle.fill" : "sparkles")
-        .foregroundStyle(message.role == .user ? .blue : .purple)
-        .font(.title3)
-      VStack(alignment: .leading, spacing: 5) {
-        Text(message.role == .user ? "你" : message.role == .plan ? "计划" : message.role == .reasoning ? "推理" : "Codex")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(.secondary)
-        Text(markdown(message.text))
-          .font(.body)
-          .textSelection(.enabled)
+      VStack(spacing: 0) {
+        Circle()
+          .fill(message.role == .user ? Color.black.opacity(0.22) : Color.green)
+          .frame(width: 7, height: 7)
+          .padding(.top, 6)
+        Rectangle()
+          .fill(Color.black.opacity(0.10))
+          .frame(width: 1)
+          .frame(maxHeight: .infinity)
       }
-      Spacer(minLength: 0)
+      .frame(width: 9)
+      if message.role == .user {
+        Spacer(minLength: 12)
+        Text(markdown(message.text))
+          .font(.system(size: 14))
+          .foregroundStyle(.primary)
+          .textSelection(.enabled)
+          .padding(.horizontal, 12)
+          .padding(.vertical, 10)
+          .background(Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+      } else {
+        VStack(alignment: .leading, spacing: 5) {
+          Text(message.role == .plan ? "Plan" : message.role == .reasoning ? "Reasoning" : "Agent")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(.secondary)
+          Text(markdown(message.text))
+            .font(.system(size: 14))
+            .textSelection(.enabled)
+        }
+        Spacer(minLength: 0)
+      }
     }
-    .padding(13)
-    .liquidGlass()
+    .padding(.vertical, 3)
   }
 
   private func markdown(_ text: String) -> AttributedString {
@@ -373,49 +507,164 @@ private struct MessageRow: View {
   }
 }
 
-private struct ChatListView: View {
+private struct MobileDrawer: View {
   @EnvironmentObject private var bridge: NativeBridgeClient
-  @Environment(\.dismiss) private var dismiss
+  let width: CGFloat
+  let close: () -> Void
+  let openSettings: () -> Void
 
   var body: some View {
-    NavigationView {
-      List {
-        Section("项目") {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack {
+        Text("Chats")
+          .font(.system(size: 22, weight: .semibold))
+        Spacer(minLength: 0)
+      }
+      .padding(.horizontal, 15)
+      .padding(.top, 18)
+      .padding(.bottom, 16)
+
+      if !bridge.projects.isEmpty {
+        Menu {
           ForEach(bridge.projects) { project in
             Button {
               bridge.selectedProjectId = project.id
-              dismiss()
             } label: {
-              Label(project.label, systemImage: project.id == bridge.selectedProjectId ? "checkmark.circle.fill" : "folder")
+              if project.id == bridge.selectedProjectId { Label(project.label, systemImage: "checkmark") } else { Text(project.label) }
             }
           }
-        }
-        Section("聊天") {
-          if bridge.threads.isEmpty {
-            Text("暂无聊天").foregroundStyle(.secondary)
+        } label: {
+          HStack(spacing: 8) {
+            Image(systemName: "folder")
+              .font(.system(size: 13, weight: .medium))
+            Text(bridge.projects.first(where: { $0.id == bridge.selectedProjectId })?.label ?? "Workspace")
+              .font(.system(size: 12, weight: .medium))
+              .lineLimit(1)
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.down")
+              .font(.system(size: 10, weight: .semibold))
           }
-          ForEach(bridge.threads) { thread in
-            Button {
-              Task { await bridge.select(thread); dismiss() }
-            } label: {
-              VStack(alignment: .leading, spacing: 3) {
-                Text(thread.title).lineLimit(1)
-                if let preview = thread.preview { Text(preview).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 11)
+          .frame(minHeight: 36)
+          .background(Color.black.opacity(0.035), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 15)
+        .padding(.bottom, 17)
+      }
+
+      Text("Recent")
+        .font(.system(size: 10, weight: .semibold))
+        .foregroundStyle(.secondary)
+        .textCase(.uppercase)
+        .tracking(1.1)
+        .padding(.horizontal, 15)
+        .padding(.bottom, 7)
+
+      ScrollView {
+        LazyVStack(spacing: 0) {
+          if bridge.threads.isEmpty {
+            Text("暂无聊天")
+              .font(.system(size: 13))
+              .foregroundStyle(.secondary)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.horizontal, 15)
+              .padding(.vertical, 14)
+          } else {
+            ForEach(bridge.threads) { thread in
+              Button {
+                Task {
+                  if let projectID = thread.projectId { bridge.selectedProjectId = projectID }
+                  await bridge.select(thread)
+                  close()
+                }
+              } label: {
+                HStack(alignment: .top, spacing: 9) {
+                  Image(systemName: "message.circle")
+                    .font(.system(size: 15))
+                    .foregroundStyle(Color.black.opacity(0.42))
+                    .padding(.top, 2)
+                  VStack(alignment: .leading, spacing: 3) {
+                    Text(drawerTitle(for: thread))
+                      .font(.system(size: 12, weight: .medium))
+                      .foregroundStyle(.primary)
+                      .lineLimit(1)
+                    if let preview = thread.preview, !preview.isEmpty {
+                      Text(preview)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    } else {
+                      Text(thread.pinned ? "Pinned" : "Chat")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    }
+                  }
+                  Spacer(minLength: 4)
+                  if thread.pinned {
+                    Image(systemName: "pin.fill")
+                      .font(.system(size: 9))
+                      .foregroundStyle(.secondary)
+                  }
+                }
+                .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .padding(.horizontal, 15)
+              .overlay(alignment: .bottom) {
+                Rectangle().fill(Color.black.opacity(0.055)).frame(height: 1).padding(.leading, 39)
               }
             }
           }
         }
-        Section {
-          Button {
-            Task { await bridge.createThread(); dismiss() }
-          } label: {
-            Label("新建聊天", systemImage: "plus")
-          }
-        }
       }
-      .navigationTitle("聊天")
-      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
+
+      Spacer(minLength: 0)
+      HStack {
+        Button {
+          Task {
+            await bridge.createThread()
+            close()
+          }
+        } label: {
+          Label("Chat", systemImage: "square.and.pencil")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .frame(height: 36)
+            .background(Color.accentColor, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("新建聊天")
+        Spacer()
+        Button(action: openSettings) {
+          Image(systemName: "gearshape")
+            .font(.system(size: 17, weight: .medium))
+            .frame(width: 38, height: 38)
+            .foregroundStyle(.primary)
+            .background(Color.white, in: Circle())
+            .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("设置")
+      }
+      .padding(.horizontal, 15)
+      .padding(.top, 12)
+      .padding(.bottom, 3)
     }
+    .frame(width: width, maxHeight: .infinity, alignment: .topLeading)
+    .background(Color.white)
+    .padding(.top, 0)
+  }
+
+  private func drawerTitle(for thread: NativeThread) -> String {
+    guard let projectID = thread.projectId,
+          let project = bridge.projects.first(where: { $0.id == projectID }) else {
+      return thread.title
+    }
+    return "\(project.label)/\(thread.title)"
   }
 }
 
@@ -591,16 +840,35 @@ private final class QRScannerController: UIViewController, AVCaptureMetadataOutp
   }
 }
 
-private struct LiquidGlassModifier: ViewModifier {
-  func body(content: Content) -> some View {
-    if #available(iOS 26.0, *) {
-      content.glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    } else {
-      content.background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
+private struct MobileIconButtonStyle: ButtonStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .foregroundStyle(.primary)
+      .background(Color.white, in: Circle())
+      .shadow(color: .black.opacity(configuration.isPressed ? 0.08 : 0.16), radius: configuration.isPressed ? 3 : 6, y: 2)
+      .scaleEffect(configuration.isPressed ? 0.96 : 1)
   }
 }
 
-private extension View {
-  func liquidGlass() -> some View { modifier(LiquidGlassModifier()) }
+private struct LeadingRoundedRectangle: Shape {
+  var radius: CGFloat
+
+  var animatableData: CGFloat {
+    get { radius }
+    set { radius = newValue }
+  }
+
+  func path(in rect: CGRect) -> Path {
+    let r = min(max(radius, 0), min(rect.width, rect.height) / 2)
+    var path = Path()
+    path.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+    path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+    path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r), control: CGPoint(x: rect.minX, y: rect.maxY))
+    path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+    path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
+    path.closeSubpath()
+    return path
+  }
 }
