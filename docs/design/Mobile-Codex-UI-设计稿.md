@@ -191,7 +191,7 @@ MobileCodex/Mobile app shell          Plan · Mon             3d
 
 不使用渐变、彩色背景、装饰性光晕或大面积彩色卡片。
 
-## 7. Flutter 实现边界
+## 7. SwiftUI 实现边界
 
 当前设计稿只定义 UI 和交互，不改变 Bridge 协议或任务数据结构。实现时应保留以下产品行为：
 
@@ -220,4 +220,4 @@ MobileCodex/Mobile app shell          Plan · Mon             3d
 
 ## 9. 当前状态
 
-Markdown 设计稿与交互预览已完成。Flutter 已实现主页 Agent Chat、固定输入框、下层聊天菜单、项目/聊天标题组合、底部 Chat 与圆形 Settings 操作区，以及主界面与菜单连接处的弧线阴影和暗层。仍需在 320px 至 430px 真机尺寸上复核文本省略、底部安全区和拖动手势。
+设计稿对应 iOS SwiftUI 原生界面。主页使用居中的欢迎区和可点击任务建议，聊天消息、固定输入区、下层菜单、项目/聊天标题、右下角 Settings 入口与菜单连接弧线均由原生视图呈现；聊天和配对继续通过本地 Bridge。仍需在 320px 至 430px 真机尺寸上复核文本省略、底部安全区和拖动手势。

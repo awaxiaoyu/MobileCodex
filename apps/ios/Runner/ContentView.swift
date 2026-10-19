@@ -20,8 +20,12 @@ struct ContentView: View {
 
         mainLayer
           .frame(width: proxy.size.width)
-          .clipShape(LeadingRoundedRectangle(radius: 36 * drawerProgress))
-          .shadow(color: .black.opacity(0.13 * drawerProgress), radius: 8, x: -4, y: 0)
+          .clipShape(LeadingRoundedRectangle(radius: 20 * drawerProgress))
+          .overlay(alignment: .leading) {
+            LeadingSeam(radius: 20 * drawerProgress)
+              .stroke(Color.white.opacity(0.85 * drawerProgress), style: StrokeStyle(lineWidth: 1, lineCap: .round))
+              .shadow(color: .black.opacity(0.08 * drawerProgress), radius: 5, x: -2, y: 0)
+          }
           .offset(x: drawerWidth * drawerProgress)
           .gesture(drawerGesture(width: drawerWidth))
       }
@@ -45,7 +49,6 @@ struct ContentView: View {
     NativeChatView(
       onMenu: toggleDrawer,
       onPairing: { showingPairing = true },
-      onOpenDrawer: openDrawer,
       onShareFile: { shareFile = ShareFile(url: $0) }
     )
   }
@@ -82,12 +85,6 @@ struct ContentView: View {
       drawerProgress = 0
     }
   }
-  private func openDrawer() {
-    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
-      drawerProgress = 1
-    }
-  }
-
   private func toggleDrawer() {
     withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
       drawerProgress = drawerProgress > 0.5 ? 0 : 1
@@ -237,7 +234,7 @@ private struct MobileDrawer: View {
     VStack(alignment: .leading, spacing: 0) {
       HStack {
         Text("Chats")
-          .font(.system(size: 22, weight: .semibold))
+          .font(.system(size: 23, weight: .semibold))
         Spacer(minLength: 0)
       }
       .padding(.horizontal, 15)
@@ -307,17 +304,17 @@ private struct MobileDrawer: View {
                     .padding(.top, 2)
                   VStack(alignment: .leading, spacing: 3) {
                     Text(drawerTitle(for: thread))
-                      .font(.system(size: 12, weight: .medium))
+                      .font(.system(size: 14, weight: .medium))
                       .foregroundStyle(.primary)
                       .lineLimit(1)
                     if let preview = thread.preview, !preview.isEmpty {
                       Text(preview)
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     } else {
                       Text(thread.pinned ? "Pinned" : "Chat")
-                        .font(.system(size: 10))
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     }
                   }
@@ -328,7 +325,7 @@ private struct MobileDrawer: View {
                       .foregroundStyle(.secondary)
                   }
                 }
-                .frame(maxWidth: .infinity, minHeight: 50, alignment: .leading)
+                .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
@@ -350,11 +347,13 @@ private struct MobileDrawer: View {
           }
         } label: {
           Label("Chat", systemImage: "square.and.pencil")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .frame(height: 36)
-            .background(Color.accentColor, in: Capsule())
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 15)
+            .frame(height: 40)
+            .background(Color.white, in: Capsule())
+            .overlay(Capsule().stroke(Color.black.opacity(0.09), lineWidth: 1))
+            .shadow(color: .black.opacity(0.045), radius: 4, y: 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("新建聊天")
@@ -362,10 +361,11 @@ private struct MobileDrawer: View {
         Button(action: openSettings) {
           Image(systemName: "gearshape")
             .font(.system(size: 17, weight: .medium))
-            .frame(width: 38, height: 38)
+            .frame(width: 40, height: 40)
             .foregroundStyle(.primary)
             .background(Color.white, in: Circle())
-            .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
+            .overlay(Circle().stroke(Color.black.opacity(0.075), lineWidth: 1))
+            .shadow(color: .black.opacity(0.055), radius: 4, y: 1)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("设置")
@@ -580,6 +580,25 @@ private struct LeadingRoundedRectangle: Shape {
     path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
     path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY), control: CGPoint(x: rect.minX, y: rect.minY))
     path.closeSubpath()
+    return path
+  }
+}
+
+private struct LeadingSeam: Shape {
+  var radius: CGFloat
+
+  var animatableData: CGFloat {
+    get { radius }
+    set { radius = newValue }
+  }
+
+  func path(in rect: CGRect) -> Path {
+    let r = min(max(radius, 0), rect.height / 2)
+    var path = Path()
+    path.move(to: CGPoint(x: rect.minX + r, y: rect.minY))
+    path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.minY + r), control: CGPoint(x: rect.minX, y: rect.minY))
+    path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - r))
+    path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.maxY), control: CGPoint(x: rect.minX, y: rect.maxY))
     return path
   }
 }
