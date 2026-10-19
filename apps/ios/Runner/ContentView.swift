@@ -4,7 +4,6 @@ import AVFoundation
 
 struct ContentView: View {
   @EnvironmentObject private var bridge: NativeBridgeClient
-  @State private var composer = ""
   @State private var showingPairing = false
   @State private var showingSettings = false
   @State private var drawerProgress: CGFloat = 0
@@ -43,12 +42,12 @@ struct ContentView: View {
   }
 
   private var mainLayer: some View {
-    VStack(spacing: 0) {
-      header
-      conversation
-      composerBar
-    }
-    .background(Color.white)
+    NativeChatView(
+      onMenu: toggleDrawer,
+      onPairing: { showingPairing = true },
+      onOpenDrawer: openDrawer,
+      onShareFile: { shareFile = ShareFile(url: $0) }
+    )
   }
 
   private func drawerGesture(width: CGFloat) -> some Gesture {
@@ -83,252 +82,18 @@ struct ContentView: View {
       drawerProgress = 0
     }
   }
-
-  private var header: some View {
-    HStack(spacing: 12) {
-      Button {
-        withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
-          drawerProgress = drawerProgress > 0.5 ? 0 : 1
-        }
-      } label: {
-        Image(systemName: "line.3.horizontal")
-          .font(.system(size: 18, weight: .semibold))
-          .frame(width: 36, height: 36)
-      }
-      .buttonStyle(MobileIconButtonStyle())
-      .accessibilityLabel("打开侧边菜单")
-      VStack(alignment: .leading, spacing: 2) {
-        Text(threadTitle)
-          .font(.system(size: bridge.currentThread == nil ? 22 : 15, weight: .semibold))
-          .lineLimit(1)
-        if bridge.currentThread != nil {
-          HStack(spacing: 5) {
-            Circle().fill(bridge.running ? Color.orange : Color.green).frame(width: 6, height: 6)
-            Text(bridge.running ? "运行中" : bridge.status)
-              .font(.system(size: 10, weight: .medium))
-              .foregroundStyle(.secondary)
-          }
-        }
-      }
-      Spacer()
-      if bridge.currentThread == nil && bridge.desktopReady {
-        HStack(spacing: 5) {
-          Circle().fill(bridge.running ? Color.orange : Color.green).frame(width: 6, height: 6)
-          Text(bridge.running ? "运行中" : "Connected")
-            .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.secondary)
-        }
-      }
-    }
-    .padding(.horizontal, 16)
-    .padding(.top, 8)
-    .padding(.bottom, 7)
-  }
-
-  private var threadTitle: String {
-    guard let thread = bridge.currentThread else { return "Mobile Codex" }
-    if let project = bridge.projects.first(where: { $0.id == thread.projectId }) {
-      return "\(project.label)/\(thread.title)"
-    }
-    return thread.title
-  }
-
-  private var conversation: some View {
-    ScrollViewReader { proxy in
-      ScrollView {
-        LazyVStack(alignment: .leading, spacing: 14) {
-          if !bridge.desktopReady {
-            EmptyStateView(
-              title: "连接你的电脑",
-              message: bridge.notice.isEmpty ? "配对后可以继续 Desktop 上的任务。" : bridge.notice,
-              actionTitle: bridge.hasCredentials ? "重新连接" : "开始配对",
-              action: {
-                if bridge.hasCredentials { Task { await bridge.connect() } } else { showingPairing = true }
-              }
-            )
-          } else if bridge.currentThread == nil && bridge.messages.isEmpty {
-            EmptyStateView(
-              title: "开始一个任务",
-              message: "选择一个聊天，或直接输入新的任务。",
-              actionTitle: "查看聊天",
-              action: { openDrawer() }
-            )
-          } else {
-            ForEach(bridge.messages) { message in
-              MessageRow(message: message)
-                .id(message.id)
-            }
-            if !bridge.diff.isEmpty {
-              VStack(alignment: .leading, spacing: 8) {
-                Label("Diff", systemImage: "arrow.left.arrow.right")
-                  .font(.subheadline.weight(.semibold))
-                Text(bridge.diff)
-                  .font(.system(.footnote, design: .monospaced))
-                  .textSelection(.enabled)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-              .padding(14)
-              .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-              .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.black.opacity(0.08)))
-            }
-            if !bridge.artifacts.isEmpty {
-              ForEach(bridge.artifacts) { artifact in
-                Button {
-                  Task {
-                    do { shareFile = ShareFile(url: try await bridge.download(artifact)) }
-                    catch { bridge.setNotice(error.localizedDescription) }
-                  }
-                } label: {
-                  Label(artifact.name, systemImage: "paperclip")
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-              }
-            }
-            if bridge.running {
-              HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("电脑正在处理任务")
-                  .font(.subheadline)
-                  .foregroundStyle(.secondary)
-              }
-              .padding(.horizontal, 16)
-            }
-          }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 18)
-      }
-      .onChange(of: bridge.messages.count) { _ in
-        if let id = bridge.messages.last?.id { withAnimation { proxy.scrollTo(id, anchor: .bottom) } }
-      }
-    }
-  }
-
-  private var composerBar: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      ZStack(alignment: .topLeading) {
-        TextEditor(text: $composer)
-          .font(.system(size: 14))
-          .frame(minHeight: 42, maxHeight: 104)
-          .padding(.horizontal, 8)
-          .padding(.vertical, 7)
-          .background(Color.white)
-          .onSubmit { submit() }
-        if composer.isEmpty {
-          Text(bridge.currentThread == nil ? "Message Codex…" : "Add direction to this task…")
-            .font(.system(size: 14))
-            .foregroundStyle(Color.black.opacity(0.38))
-            .padding(.horizontal, 13)
-            .padding(.vertical, 15)
-            .allowsHitTesting(false)
-        }
-      }
-      HStack(spacing: 7) {
-        Menu {
-          Picker("模式", selection: $bridge.mode) {
-            Text("Default").tag("default")
-            Text("Plan").tag("plan")
-          }
-        } label: {
-          Label(bridge.mode == "plan" ? "Plan" : "Default", systemImage: "route")
-            .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(.secondary)
-        }
-        .buttonStyle(.plain)
-        if !bridge.models.isEmpty {
-          Menu {
-            ForEach(bridge.models) { model in
-              Button {
-                bridge.selectedModel = model.id
-              } label: {
-                if model.id == bridge.selectedModel { Label(model.label, systemImage: "checkmark") } else { Text(model.label) }
-              }
-            }
-          } label: {
-            Text(bridge.models.first(where: { $0.id == bridge.selectedModel })?.label ?? "Model")
-              .font(.system(size: 12, weight: .medium))
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-        }
-        Spacer(minLength: 0)
-        if bridge.running {
-          Button { Task { await bridge.interrupt() } } label: {
-            Image(systemName: "stop.fill")
-              .font(.system(size: 11, weight: .bold))
-              .frame(width: 34, height: 34)
-              .background(Color.black, in: Circle())
-              .foregroundStyle(.white)
-          }
-          .accessibilityLabel("停止任务")
-        } else {
-          Button(action: submit) {
-            Image(systemName: "arrow.up")
-              .font(.system(size: 14, weight: .bold))
-              .frame(width: 34, height: 34)
-              .background(Color.black, in: Circle())
-              .foregroundStyle(.white)
-          }
-          .disabled(composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !bridge.desktopReady)
-          .opacity(composer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !bridge.desktopReady ? 0.35 : 1)
-          .accessibilityLabel("发送")
-        }
-      }
-      .padding(.horizontal, 8)
-      .padding(.bottom, 8)
-    }
-    .padding(.horizontal, 13)
-    .padding(.top, 9)
-    .padding(.bottom, 5)
-    .background(Color.white)
-    .overlay(RoundedRectangle(cornerRadius: 17, style: .continuous).stroke(Color.black.opacity(0.11)))
-    .clipShape(RoundedRectangle(cornerRadius: 17, style: .continuous))
-    .padding(.horizontal, 13)
-    .padding(.bottom, 10)
-  }
-
-  private func submit() {
-    let value = composer.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !value.isEmpty, bridge.desktopReady else { return }
-    composer = ""
-    Task { await bridge.send(value) }
-  }
-
   private func openDrawer() {
     withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
       drawerProgress = 1
     }
   }
 
-}
-private struct EmptyStateView: View {
-  let title: String
-  let message: String
-  let actionTitle: String
-  let action: () -> Void
-
-  var body: some View {
-    VStack(spacing: 12) {
-      Image(systemName: "sparkles")
-        .font(.system(size: 38, weight: .light))
-        .foregroundStyle(.primary)
-      Text(title).font(.title3.weight(.semibold))
-      Text(message)
-        .font(.subheadline)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
-      Button(actionTitle, action: action)
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle(.white)
-        .padding(.horizontal, 16)
-        .frame(height: 38)
-        .background(Color.black, in: Capsule())
+  private func toggleDrawer() {
+    withAnimation(.interactiveSpring(response: 0.28, dampingFraction: 0.88)) {
+      drawerProgress = drawerProgress > 0.5 ? 0 : 1
     }
-    .frame(maxWidth: .infinity)
-    .padding(.vertical, 90)
   }
+
 }
 private struct NativeApprovalSheet: View {
   @EnvironmentObject private var bridge: NativeBridgeClient
@@ -459,51 +224,6 @@ private struct NativeApprovalSheet: View {
     }
     Task { await bridge.respond(to: approval, payload: payload) }
     dismiss()
-  }
-}
-
-private struct MessageRow: View {
-  let message: NativeMessage
-
-  var body: some View {
-    HStack(alignment: .top, spacing: 10) {
-      VStack(spacing: 0) {
-        Circle()
-          .fill(message.role == .user ? Color.black.opacity(0.22) : Color.green)
-          .frame(width: 7, height: 7)
-          .padding(.top, 6)
-        Rectangle()
-          .fill(Color.black.opacity(0.10))
-          .frame(width: 1)
-          .frame(maxHeight: .infinity)
-      }
-      .frame(width: 9)
-      if message.role == .user {
-        Spacer(minLength: 12)
-        Text(markdown(message.text))
-          .font(.system(size: 14))
-          .foregroundStyle(.primary)
-          .textSelection(.enabled)
-          .padding(.horizontal, 12)
-          .padding(.vertical, 10)
-          .background(Color.black.opacity(0.06), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-      } else {
-        VStack(alignment: .leading, spacing: 5) {
-          Text(message.role == .plan ? "Plan" : message.role == .reasoning ? "Reasoning" : "Agent")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(.secondary)
-          Text(markdown(message.text))
-            .font(.system(size: 14))
-            .textSelection(.enabled)
-        }
-        Spacer(minLength: 0)
-      }
-    }
-    .padding(.vertical, 3)
-  }
-
-  private func markdown(_ text: String) -> AttributedString {
-    (try? AttributedString(markdown: text)) ?? AttributedString(text)
   }
 }
 
@@ -838,16 +558,6 @@ private final class QRScannerController: UIViewController, AVCaptureMetadataOutp
       label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
       label.centerYAnchor.constraint(equalTo: view.centerYAnchor)
     ])
-  }
-}
-
-private struct MobileIconButtonStyle: ButtonStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    configuration.label
-      .foregroundStyle(.primary)
-      .background(Color.white, in: Circle())
-      .shadow(color: .black.opacity(configuration.isPressed ? 0.08 : 0.16), radius: configuration.isPressed ? 3 : 6, y: 2)
-      .scaleEffect(configuration.isPressed ? 0.96 : 1)
   }
 }
 

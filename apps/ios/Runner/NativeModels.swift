@@ -34,6 +34,23 @@ struct NativeMessage: Identifiable, Hashable {
   }
 }
 
+struct NativeTimelineTurn: Identifiable, Hashable {
+  let id: String
+  var messages: [NativeMessage]
+
+  static func project(_ messages: [NativeMessage]) -> [NativeTimelineTurn] {
+    var turns: [NativeTimelineTurn] = []
+    for message in messages {
+      if turns.last?.id == message.turnId {
+        turns[turns.count - 1].messages.append(message)
+      } else {
+        turns.append(NativeTimelineTurn(id: message.turnId, messages: [message]))
+      }
+    }
+    return turns
+  }
+}
+
 struct NativeArtifact: Identifiable, Hashable {
   let id: String
   let name: String
