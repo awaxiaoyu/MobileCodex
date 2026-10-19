@@ -1,13 +1,12 @@
 # 文档索引
 
-## 设计
+公开文档只保留可维护的使用、开发和协议资料。产品草图、UI 设计和内部方案 Markdown 不随公开仓库发布，并由 `.gitignore` 排除。
 
-- [开发计划](design/app-plan.md)
-- [手机能力范围](design/mobile-capability-scope.md)
-- [Bridge 协议](design/bridge-protocol.md)
-- [Android UI 设计](design/ui-design.md)
-- [Bridge envelope schema](design/mobile-codex-bridge-v1.schema.json)
-- [协议消息示例](design/mobile-codex-bridge-v1.examples.json)
+## 协议资源
+
+- [Bridge envelope schema](../schemas/bridge/mobile-codex-bridge-v1.schema.json)
+- [协议消息示例](../schemas/bridge/mobile-codex-bridge-v1.examples.json)
+- [能力范围数据](../schemas/bridge/mobile-codex-feature-scope.json)
 
 ## 开发
 

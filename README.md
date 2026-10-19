@@ -1,14 +1,24 @@
 # MobileCodex
 
-MobileCodex 是一个实验性的 Windows Bridge 与 Android 客户端：把手机连接到正在运行的 Codex Desktop，让用户继续查看和操作已有任务。
+[English README](README.en.md) · [许可证](LICENSE) · [路线图](docs/development/roadmap.md)
 
-公开仓库当前只包含 Windows Bridge 和 Android Flutter 客户端。iOS 客户端暂不属于公开源码范围；本机已有的 iOS 文件会被 Git 忽略，不会进入后续公开提交。
+MobileCodex 是一个实验性的 Windows Bridge 与 Android 客户端：将手机连接到正在运行的 Codex Desktop，让用户继续查看和操作已有任务。
 
-## 项目状态
+> 项目仍处于 early access。Bridge 与 Android 客户端已经可以用于开发和测试，但兼容性取决于 Codex Desktop 版本；请把问题、设备差异和改进建议提交到 Issues。
 
-项目仍处于 early access 阶段。Bridge、配对、WSS RPC、聊天任务和 Android UI 已有实现与自动化测试，但兼容性取决于本机 Codex Desktop 版本，实体设备、断线恢复和复杂审批场景仍需要使用者自行验收。
+## 项目 Logo 征集
 
-当前首版支持：
+我们正在为 MobileCodex 征集一个简洁、易识别、适合 Android 图标和网页展示的项目 Logo。欢迎提交设计方案：
+
+- 在 [Issues](https://github.com/awaxiaoyu/MobileCodex/issues) 新建 `Logo proposal`，附上 SVG 或 PNG、浅色/深色背景预览和设计说明；
+- 或提交 Pull Request，将源文件放在 `assets/branding/`，同时说明字体、图形和第三方素材的授权情况；
+- 方案应允许项目在 Apache-2.0 条款下使用、修改和再发布，不要包含没有再授权权利的素材。
+
+Logo 会由社区讨论后选定。提交方案即表示你允许项目维护者在仓库、应用和项目页面中展示候选方案；最终采用的授权细节会在合并前确认。
+
+## 当前能力
+
+公开仓库当前包含 Windows Bridge 和 Android Flutter 客户端。iOS 客户端暂不属于公开源码范围。
 
 - 配对、TLS certificate pinning、设备撤销和重连；
 - 项目与聊天列表、读取、新建和恢复；
@@ -37,17 +47,17 @@ Bridge 负责配对、设备权限、版本检查、请求关联和事件恢复�
 src/                    Bridge、WSS server、RPC、设备和策略
 adapters/               Desktop Main/Renderer adapter
 native/                 NativePipe 相关代码
-schemas/                原生请求和回复 schema
+schemas/                原生请求/回复与 Bridge schema
+schemas/bridge/         公开的 Bridge envelope、示例和能力范围数据
 apps/android/           Flutter Android client
 scripts/                启动、构建、smoke test 和 benchmark
 tests/                  Node fixture 与 Bridge tests
-docs/design/            产品范围、协议和 UI 设计
-docs/development/       验证、benchmark 和 roadmap
+docs/development/       验证、benchmark 和路线图
 docs/guides/            Desktop 设置入口和运行指南
-.github/workflows/      Android CI
+.github/workflows/      Android CI 与 Release
 ~~~
 
-dist/、.local/、node_modules/、apps/ios/ 和 docs/evidence/ 都是本地或排除内容，不应提交。
+`dist/`、`.local/`、`node_modules/`、`apps/ios/`、`docs/design/` 和 `docs/evidence/` 都是本地或排除内容，不应提交。设计 Markdown 只在本地工作区维护；公开协议以 `schemas/bridge/` 中的 JSON 为准。
 
 ## 环境要求
 
@@ -56,7 +66,7 @@ dist/、.local/、node_modules/、apps/ios/ 和 docs/evidence/ 都是本地或�
 - pnpm 11；
 - Flutter 3.47.7 / Dart 3.13.5；
 - JDK 17（构建 Android APK）；
-- 与 adapters/main/compatibility.json 匹配的 Codex Desktop；
+- 与 `adapters/main/compatibility.json` 匹配的 Codex Desktop；
 - Frida 17.23.3 和 OpenSSL（Bridge 使用 Frida 时）。
 
 ## 快速开始
@@ -80,7 +90,7 @@ $env:MOBILE_CODEX_FRIDA_PYTHON = 'C:\path\to\python.exe'
 powershell -NoProfile -File scripts/serve-desktop.ps1 -Address 192.0.2.10
 ~~~
 
-将脚本输出的一次性 pairing 信息交给 Android 客户端。-ReadOnly 可以关闭控制动作。默认 WSS 端口为 37842，admin HTTP 只应监听本机回环地址；不要把 admin 端口暴露到 LAN 或公网。
+将脚本输出的一次性 pairing 信息交给 Android 客户端。`-ReadOnly` 可以关闭控制动作。默认 WSS 端口为 37842，admin HTTP 只应监听本机回环地址；不要把 admin 端口暴露到 LAN 或公网。
 
 ## Android 客户端
 
@@ -111,33 +121,31 @@ pnpm smoke:mobile
 pnpm build:windows
 ~~~
 
-smoke:frida 和 smoke:desktop 需要正在运行的兼容 Desktop；它们不是离线单元测试。pnpm benchmark 默认使用本机 fixture，结果写入被忽略的 .local/benchmarks/。
+smoke 命令需要正在运行的兼容 Desktop；它们不是离线单元测试。`pnpm benchmark` 默认使用本机 fixture，结果写入被忽略的 `.local/benchmarks/`。
 
 ## 协议与安全边界
 
-协议 envelope 和示例位于 [mobile-codex-bridge-v1.schema.json](docs/design/mobile-codex-bridge-v1.schema.json) 与 [mobile-codex-bridge-v1.examples.json](docs/design/mobile-codex-bridge-v1.examples.json)。Bridge 会校验：
+协议 envelope、示例和能力范围位于 [`schemas/bridge/`](schemas/bridge/)。Bridge 会校验：
 
 - 设备 token、TLS fingerprint、backend generation 和 thread/turn 归属；
 - capability registry 与方法/字段 allowlist；
 - task-scoped artifact 引用，拒绝任意本机路径；
 - 重复请求、旧 generation、未知 mutation 和已经解决的审批。
 
-电脑上的 Codex credentials、项目路径和权限配置不会发送给手机。请把 .local/、证书、pairing secret、token、日志和真实任务内容视为敏感数据。
+电脑上的 Codex credentials、项目路径和权限配置不会发送给手机。请把 `.local/`、证书、pairing secret、token、日志和真实任务内容视为敏感数据。
 
-## CI
+## CI 与自动 Release
 
-.github/workflows/android.yml 在 GitHub-hosted Ubuntu runner 上执行 Node typecheck/test、Flutter analyze/test 和 debug APK 构建，并上传 x86_64 APK artifact。workflow 不包含 iOS job。
+`.github/workflows/android.yml` 在 GitHub-hosted Ubuntu runner 上执行 Node typecheck/test、Flutter analyze/test 和 debug APK 构建。`main` 分支上的构建成功后，workflow 会自动创建 GitHub Release，并附带 x86_64 debug APK。Release tag 使用 `android-v<版本>-<run id>`，可从 [Releases](https://github.com/awaxiaoyu/MobileCodex/releases) 下载。
 
 ## 文档
 
-- [产品和开发范围](docs/design/app-plan.md)
-- [手机能力边界](docs/design/mobile-capability-scope.md)
-- [Bridge 协议](docs/design/bridge-protocol.md)
-- [Android UI 设计](docs/design/ui-design.md)
+- [路线图](docs/development/roadmap.md)
 - [开发验证](docs/development/verification.md)
 - [性能 benchmark](docs/development/benchmark.md)
-- [路线图](docs/development/roadmap.md)
 - [Desktop 设置入口](docs/guides/desktop-settings.md)
+- [公开协议 schema](schemas/bridge/mobile-codex-bridge-v1.schema.json)
+- [协议消息示例](schemas/bridge/mobile-codex-bridge-v1.examples.json)
 - [贡献指南](CONTRIBUTING.md)
 - [安全报告](SECURITY.md)
 

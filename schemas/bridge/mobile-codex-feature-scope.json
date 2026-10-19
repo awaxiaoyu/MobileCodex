@@ -1,6 +1,6 @@
 {
   "scopeVersion": "0.2.0",
-  "source": "docs/design/mobile-capability-scope.md",
+  "source": "README.md and docs/development/roadmap.md",
   "note": "产品范围决定，不是功能不存在或能力不可用。对混合条目拆分；host/defer 不注册独立手机 API。用户经聊天请求原 Agent 能力仍按电脑现有权限执行。",
   "counts": {
     "keep": 11,

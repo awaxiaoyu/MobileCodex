@@ -26,6 +26,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
     env:
       GRADLE_OPTS: -Dorg.gradle.daemon=false
 
@@ -43,6 +45,11 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Read release metadata
+        id: metadata
+        shell: bash
+        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
 
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
@@ -108,3 +115,41 @@ jobs:
           path: apps/android/build/app/outputs/flutter-apk/app-x86_64-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: mobile-codex-debug-apk-x86_64
+          path: release-assets
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="android-v${VERSION}-${RUN_ID}"
+          title="MobileCodex Android ${VERSION} (${RUN_ID})"
+          notes="Automated x86_64 debug APK built from ${SHA}."
+          if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${tag}" release-assets/app-x86_64-debug.apk --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            gh release create "${tag}" release-assets/app-x86_64-debug.apk \
+              --repo "${GITHUB_REPOSITORY}" \
+              --target "${SHA}" \
+              --title "${title}" \
+              --notes "${notes}"
+          fi
