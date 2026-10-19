@@ -558,7 +558,7 @@ private struct MobileDrawer: View {
         .font(.system(size: 10, weight: .semibold))
         .foregroundStyle(.secondary)
         .textCase(.uppercase)
-        .tracking(1.1)
+        .kerning(1.1)
         .padding(.horizontal, 15)
         .padding(.bottom, 7)
 
