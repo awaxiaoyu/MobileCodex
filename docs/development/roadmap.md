@@ -12,7 +12,6 @@ MobileCodex 的路线图按交付阶段维护。每一项进入下一阶段前�
 
 ## 当前阶段：稳定性与可复现安装
 
-- [ ] 在真实 Android 设备上复核配对、证书 pinning、撤销、重连、锁屏恢复和 VPN。
 - [ ] 建立 Codex Desktop compatibility matrix，明确支持、已知问题和安全拒绝版本。
 - [ ] 固化 Bridge 与 Android 的版本兼容规则，让不匹配的客户端得到可读提示。
 - [ ] 为长输出、断网、Bridge 重启、事件缓存缺失和 snapshot 恢复补充可重复 fixture。
